@@ -127,3 +127,24 @@ th{color:var(--muted);font-weight:600;font-size:.82rem;text-transform:uppercase;
   .qtext{font-size:1.05rem}
   h1{font-size:1.35rem}
 }
+
+/* admin */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.toolbar select{max-width:230px}
+.toolbar input[type=text]{flex:1;min-width:160px}
+.qcell{max-width:520px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal}
+textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;resize:vertical}
+textarea:focus{outline:2px solid var(--brand);outline-offset:1px}
+code{background:var(--bg);border:1px solid var(--line);padding:2px 6px;border-radius:6px;font-size:.88rem;word-break:break-word}
+dialog.dlg{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);color:var(--ink);padding:22px;width:min(640px,94vw);max-height:92vh;overflow:auto;box-shadow:var(--shadow)}
+dialog.dlg::backdrop{background:rgba(20,21,31,.55)}
+a.btn{text-decoration:none;display:inline-flex;align-items:center}
+
+/* student progress */
+.meter{height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--brand);border-radius:99px}
+.meter.low i{background:var(--bad)}
+.meter.high i{background:var(--ok)}
+.spark-wrap{margin:16px 0 4px}
+.spark{display:block;width:100%;max-width:420px;height:70px;margin-top:6px}
+.weak{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}

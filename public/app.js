@@ -61,6 +61,15 @@ function renderTopbar() {
     <button class="btn ghost sm" data-act="lb">Leaderboard</button>
     <span class="who">${esc(name)}</span>
     <button class="btn sm" data-act="logout">Log out</button>`;
+  // Show an Admin link only to admins
+  sb.rpc('is_admin').then(({ data }) => {
+    if (data === true && session) {
+      const a = document.createElement('a');
+      a.className = 'btn ghost sm'; a.href = 'admin.html'; a.textContent = 'Admin';
+      const lb = topbar.querySelector('[data-act=lb]');
+      if (lb) lb.after(a);
+    }
+  });
 }
 
 /* ---------- auth ---------- */
@@ -111,17 +120,69 @@ async function doAuth(form) {
   btn.disabled = false;
 }
 
+/* ---------- dashboard helpers ---------- */
+const accOf = x => (x && x.answered) ? Math.round(100 * x.correct / x.answered) : null;
+
+function unitAccuracy(x) {
+  const a = accOf(x);
+  if (a === null) return '<div class="meter"><i style="width:0"></i></div><div class="small muted" style="margin-bottom:12px">Not attempted yet</div>';
+  return `<div class="meter ${a < 50 ? 'low' : a >= 75 ? 'high' : ''}"><i style="width:${a}%"></i></div>
+    <div class="small muted" style="margin-bottom:12px">${a}% accuracy · ${x.correct}/${x.answered} correct</div>`;
+}
+
+function sparkline(trend) {
+  if (!trend || trend.length < 2) return '';
+  const w = 260, h = 60, p = 6;
+  const pts = trend.map((t, i) => [p + i * (w - 2 * p) / (trend.length - 1),
+    h - p - (Math.min(100, Number(t.pct) || 0) / 100) * (h - 2 * p)]);
+  return `<div class="spark-wrap"><div class="small muted">Score trend (last ${trend.length} tests)</div>
+    <svg viewBox="0 0 ${w} ${h}" class="spark" role="img" aria-label="Score trend over your last ${trend.length} attempts">
+      <polyline points="${pts.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ')}" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      ${pts.map(q => `<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="3" fill="var(--brand)"/>`).join('')}
+    </svg></div>`;
+}
+
+function progressHTML(st) {
+  if (!st || !st.attempts) {
+    return `<div class="card" style="margin-top:20px"><h2 style="margin-bottom:.3em">Welcome!</h2>
+      <p class="muted" style="margin:0">Take your first test to see your progress, accuracy by unit and your rank here.</p></div>`;
+  }
+  const overall = st.answered ? Math.round(100 * st.correct / st.answered) : 0;
+  const weak = st.units.filter(x => x.answered >= 5)
+    .map(x => ({ unit: x.unit, a: accOf(x) })).filter(x => x.a < 75)
+    .sort((a, b) => a.a - b.a).slice(0, 2);
+  return `<h2 class="section-title">Your progress</h2>
+    <div class="card">
+      <div class="stats" style="margin-top:0">
+        <div class="stat big"><b>${st.attempts}</b><span>Tests taken</span></div>
+        <div class="stat"><b>${st.avg_pct ?? 0}%</b><span>Average score</span></div>
+        <div class="stat"><b>${st.best_pct ?? 0}%</b><span>Best score</span></div>
+        <div class="stat"><b>${overall}%</b><span>Answer accuracy</span></div>
+        <div class="stat"><b>${st.streak}</b><span>Day streak</span></div>
+        <div class="stat"><b>${st.rank ? '#' + st.rank : '—'}</b><span>${st.rank ? 'Full-mock rank of ' + st.players : 'Full-mock rank'}</span></div>
+      </div>
+      ${sparkline(st.trend)}
+      ${weak.length ? `<div class="weak"><b>Needs practice</b>
+        ${weak.map(w => `<div class="toolbar" style="margin:8px 0 0"><span>${esc(unitTitle(w.unit))} <span class="muted small">· ${w.a}% accuracy</span></span>
+          <button class="btn sm primary" style="margin-left:auto" data-act="start" data-unit="${w.unit}">Practise</button></div>`).join('')}</div>` : ''}
+    </div>`;
+}
+
 /* ---------- dashboard ---------- */
 async function renderDashboard() {
   stopTimer();
   loading();
-  const [u, h] = await Promise.all([
+  const [u, h, s] = await Promise.all([
     sb.rpc('unit_counts'),
     sb.from('attempts').select('id,unit,total,correct,score,late,created_at')
-      .order('created_at', { ascending: false }).limit(10)
+      .order('created_at', { ascending: false }).limit(10),
+    sb.rpc('my_stats')
   ]);
   if (u.error) return showError(u.error.message);
   units = u.data || [];
+  const st = (!s.error && s.data) ? s.data : null;   // progress is optional: never block the dashboard
+  const byUnit = {};
+  if (st) st.units.forEach(x => { byUnit[x.unit] = x; });
   const totalQ = units.reduce((a, x) => a + Number(x.n), 0);
   const saved = loadSaved();
   const perTest = cfg.QUESTIONS_PER_TEST || 100;
@@ -129,7 +190,8 @@ async function renderDashboard() {
   const unitCards = units.map(x => `
     <div class="card unit">
       <h3>${esc(x.title)}</h3>
-      <div class="n">${x.n} question${Number(x.n) === 1 ? '' : 's'} in bank</div>
+      <div class="n" style="margin-bottom:6px">${x.n} question${Number(x.n) === 1 ? '' : 's'} in bank</div>
+      ${unitAccuracy(byUnit[x.id])}
       <button class="btn primary block" data-act="start" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
         ${Number(x.n) === 0 ? 'Coming soon' : 'Start unit test'}</button>
     </div>`).join('');
@@ -156,6 +218,7 @@ async function renderDashboard() {
       </div>
       <button class="btn primary" data-act="start" data-unit="" ${totalQ === 0 ? 'disabled' : ''}>Start full mock</button>
     </div>
+    ${progressHTML(st)}
     <h2 class="section-title">Unit-wise tests</h2>
     <div class="grid units">${unitCards}</div>
     <h2 class="section-title">Your recent attempts</h2>

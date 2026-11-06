@@ -25,3 +25,14 @@ Features: student sign-up/login, full 100-question mock (2 hrs, +2 per correct, 
 - Marking happens on the server; the leaderboard ignores attempts over the time limit.
 - To change time per question, edit both `MINUTES_PER_QUESTION` in `config.js` and the `72` (seconds) in `submit_attempt` in `schema.sql`.
 - A full mock takes up to 10 questions from each unit, then fills the rest at random. A unit test uses up to 100 questions of that unit.
+
+## Admin dashboard
+Open `/admin.html` on your site (also linked as "Admin" in the top bar for admins). It lets you add, edit and delete questions, import a CSV of questions, rename units, and see students and recent attempts.
+
+To make an account an admin, run this once in the Supabase SQL Editor (after `supabase/admin.sql` has been applied):
+
+```sql
+insert into public.admins (user_id)
+select id from auth.users where email = 'your-email@example.com'
+on conflict do nothing;
+```
