@@ -50,13 +50,13 @@ function showError(msg) {
 /* ---------- top bar ---------- */
 function renderTopbar() {
   if (!session) {
-    topbar.innerHTML = `<div class="brand" data-act="home"><span class="dot sa">सं</span>UGC NET Sanskrit Mock Tests</div>`;
+    topbar.innerHTML = `<div class="brand" data-act="home"><span class="dot sa">सं</span>UGC NET Sanskrit</div>`;
     return;
   }
   const meta = session.user.user_metadata || {};
   const name = meta.name || (session.user.email || '').split('@')[0];
   topbar.innerHTML = `
-    <div class="brand" data-act="home"><span class="dot sa">सं</span>UGC NET Sanskrit Mock Tests</div>
+    <div class="brand" data-act="home"><span class="dot sa">सं</span>UGC NET Sanskrit</div>
     <button class="btn ghost sm" data-act="home">Dashboard</button>
     <button class="btn ghost sm" data-act="lb">Leaderboard</button>
     <span class="who">${esc(name)}</span>
@@ -77,9 +77,15 @@ function renderAuth() {
   stopTimer();
   const su = authMode === 'signup';
   app.innerHTML = `
+  <div class="auth-wrap">
+  <div class="auth-art">
+    <p class="verse" lang="sa">विद्या ददाति विनयम्</p>
+    <p class="gloss">Learning gives humility.</p>
+    <p class="src">Hitopadeśa</p>
+    <p class="lede">Practise UGC NET Sanskrit (code 25) under exam conditions. Take full 100-question mocks or work through one unit at a time, and see where you rank.</p>
+  </div>
   <div class="card auth">
     <h1>${su ? 'Create your free account' : 'Welcome back'}</h1>
-    <p class="muted">UGC NET Sanskrit (Code 25): full mocks, unit-wise tests and a leaderboard.</p>
     <div class="tabs">
       <button class="btn tab ${su ? '' : 'on'}" data-act="mode" data-m="login" type="button">Log in</button>
       <button class="btn tab ${su ? 'on' : ''}" data-act="mode" data-m="signup" type="button">Sign up</button>
@@ -94,6 +100,7 @@ function renderAuth() {
       <div id="autherr" class="err" role="alert"></div>
       <button class="btn primary block" type="submit" style="margin-top:8px">${su ? 'Sign up' : 'Log in'}</button>
     </form>
+  </div>
   </div>`;
 }
 
@@ -122,17 +129,18 @@ async function doAuth(form) {
 
 /* ---------- dashboard helpers ---------- */
 const accOf = x => (x && x.answered) ? Math.round(100 * x.correct / x.answered) : null;
+const toDev = n => String(n).replace(/\d/g, d => '०१२३४५६७८९'[d]);   // 1 -> १
 
 function unitAccuracy(x) {
   const a = accOf(x);
-  if (a === null) return '<div class="meter"><i style="width:0"></i></div><div class="small muted" style="margin-bottom:12px">Not attempted yet</div>';
+  if (a === null) return '<div class="meter"><i style="width:0"></i></div><div class="small muted">Not attempted yet</div>';
   return `<div class="meter ${a < 50 ? 'low' : a >= 75 ? 'high' : ''}"><i style="width:${a}%"></i></div>
-    <div class="small muted" style="margin-bottom:12px">${a}% accuracy · ${x.correct}/${x.answered} correct</div>`;
+    <div class="small muted">${a}% accuracy, ${x.correct} of ${x.answered} correct</div>`;
 }
 
 function sparkline(trend) {
   if (!trend || trend.length < 2) return '';
-  const w = 260, h = 60, p = 6;
+  const w = 640, h = 84, p = 8;
   const pts = trend.map((t, i) => [p + i * (w - 2 * p) / (trend.length - 1),
     h - p - (Math.min(100, Number(t.pct) || 0) / 100) * (h - 2 * p)]);
   return `<div class="spark-wrap"><div class="small muted">Score trend (last ${trend.length} tests)</div>
@@ -159,11 +167,11 @@ function progressHTML(st) {
         <div class="stat"><b>${st.best_pct ?? 0}%</b><span>Best score</span></div>
         <div class="stat"><b>${overall}%</b><span>Answer accuracy</span></div>
         <div class="stat"><b>${st.streak}</b><span>Day streak</span></div>
-        <div class="stat"><b>${st.rank ? '#' + st.rank : '—'}</b><span>${st.rank ? 'Full-mock rank of ' + st.players : 'Full-mock rank'}</span></div>
+        <div class="stat"><b>${st.rank ? '#' + st.rank + '<small> of ' + st.players + '</small>' : '—'}</b><span>Full-mock rank</span></div>
       </div>
       ${sparkline(st.trend)}
       ${weak.length ? `<div class="weak"><b>Needs practice</b>
-        ${weak.map(w => `<div class="toolbar" style="margin:8px 0 0"><span>${esc(unitTitle(w.unit))} <span class="muted small">· ${w.a}% accuracy</span></span>
+        ${weak.map(w => `<div class="toolbar" style="margin:8px 0 0"><span>${esc(unitTitle(w.unit))} <span class="muted small">(${w.a}% accuracy)</span></span>
           <button class="btn sm primary" style="margin-left:auto" data-act="start" data-unit="${w.unit}">Practise</button></div>`).join('')}</div>` : ''}
     </div>`;
 }
@@ -188,12 +196,15 @@ async function renderDashboard() {
   const perTest = cfg.QUESTIONS_PER_TEST || 100;
 
   const unitCards = units.map(x => `
-    <div class="card unit">
-      <h3>${esc(x.title)}</h3>
-      <div class="n" style="margin-bottom:6px">${x.n} question${Number(x.n) === 1 ? '' : 's'} in bank</div>
-      ${unitAccuracy(byUnit[x.id])}
-      <button class="btn primary block" data-act="start" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
-        ${Number(x.n) === 0 ? 'Coming soon' : 'Start unit test'}</button>
+    <div class="urow">
+      <span class="unum" aria-hidden="true">${toDev(x.id)}</span>
+      <div class="uinfo">
+        <h3>${esc(x.title)}</h3>
+        <div class="small muted">${x.n} question${Number(x.n) === 1 ? '' : 's'}</div>
+      </div>
+      <div class="uacc">${unitAccuracy(byUnit[x.id])}</div>
+      <button class="btn ${Number(x.n) === 0 ? '' : 'primary'}" data-act="start" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
+        ${Number(x.n) === 0 ? 'No questions' : 'Start test'}</button>
     </div>`).join('');
 
   const hist = (h.data || []).map(a => `
@@ -201,26 +212,26 @@ async function renderDashboard() {
       <td>${esc(testName(a.unit))}</td>
       <td>${a.score} / ${a.total * 2}${a.late ? ' <span class="muted small">(overtime)</span>' : ''}</td>
       <td>${a.correct} / ${a.total}</td>
-      <td class="small muted">${new Date(a.created_at).toLocaleString('en-IN')}</td>
+      <td class="small muted">${new Date(a.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
       <td><button class="btn sm" data-act="review" data-id="${a.id}">Review</button></td>
     </tr>`).join('');
 
   app.innerHTML = `
     ${saved ? `<div class="banner"><div><b>You have a test in progress</b><br>
-      <span class="muted small">${esc(testName(saved.unit))} · ${Object.keys(saved.answers || {}).length} / ${saved.qs.length} answered</span></div>
+      <span class="muted small">${esc(testName(saved.unit))}, ${Object.keys(saved.answers || {}).length} of ${saved.qs.length} answered</span></div>
       <div><button class="btn primary" data-act="resume">Resume</button>
       <button class="btn" data-act="discard">Discard</button></div></div>` : ''}
     <div class="card hero">
       <div>
         <h1>Full Mock Test</h1>
-        <p class="muted" style="margin:0">${perTest} questions mixed from all units · 2 marks each · no negative marking ·
-          ${Math.round(perTest * (cfg.MINUTES_PER_QUESTION || 1.2))} minutes</p>
+        <p class="muted">${perTest} questions drawn from all ten units, two marks each, no negative marking.
+          You get ${Math.round(perTest * (cfg.MINUTES_PER_QUESTION || 1.2))} minutes.</p>
       </div>
       <button class="btn primary" data-act="start" data-unit="" ${totalQ === 0 ? 'disabled' : ''}>Start full mock</button>
     </div>
     ${progressHTML(st)}
     <h2 class="section-title">Unit-wise tests</h2>
-    <div class="grid units">${unitCards}</div>
+    <div class="ledger">${unitCards}</div>
     <h2 class="section-title">Your recent attempts</h2>
     <div class="card">${hist
       ? `<div class="tablewrap"><table><thead><tr><th>Test</th><th>Score</th><th>Correct</th><th>When</th><th></th></tr></thead><tbody>${hist}</tbody></table></div>`
@@ -255,6 +266,7 @@ function renderTest() {
   app.innerHTML = `
   <div class="test">
     <section class="card">
+      <div class="progress" aria-hidden="true"><i style="width:${Math.round(100 * (t.idx + 1) / t.qs.length)}%"></i></div>
       <div class="test-head">
         <span class="badge">Question ${t.idx + 1} of ${t.qs.length}</span>
         <span class="badge soft">${esc(unitTitle(q.unit))}</span>
@@ -273,7 +285,7 @@ function renderTest() {
     <aside class="card palette">
       <b>${answered} / ${t.qs.length} answered</b>
       <div class="pal">${pal}</div>
-      <div class="legend"><span><i style="background:var(--ok)"></i>Answered</span>
+      <div class="legend"><span><i style="background:var(--brand)"></i>Answered</span>
         <span><i style="background:var(--mark)"></i>Review</span><span><i></i>Not answered</span></div>
       <button class="btn primary block" data-act="submit">Submit test</button>
     </aside>
@@ -286,7 +298,7 @@ function tick() {
   if (!test) return stopTimer();
   const left = test.endAt - Date.now();
   const el = document.getElementById('timer');
-  if (el) { el.textContent = '⏱ ' + fmtTime(left); el.classList.toggle('low', left < 300000); }
+  if (el) { el.textContent = fmtTime(left); el.classList.toggle('low', left < 300000); }
   if (left <= 0) { stopTimer(); submitTest(true); }
 }
 
@@ -320,8 +332,8 @@ function renderResult(r) {
   lastResult = r; reviewFilter = 'all';
   const pct = r.max_score ? (100 * r.score / r.max_score).toFixed(1) : '0.0';
   app.innerHTML = `
-    <div class="card">
-      <h1>${esc(testName(r.unit))} · Result</h1>
+    <div class="card rule">
+      <h1>${esc(testName(r.unit))} result</h1>
       <div class="stats">
         <div class="stat big"><b>${r.score} / ${r.max_score}</b><span>Score (${pct}%)</span></div>
         <div class="stat"><b style="color:var(--ok)">${r.correct}</b><span>Correct</span></div>
@@ -384,7 +396,7 @@ async function renderLeaderboard(unit = null) {
   const opts = `<option value="">Full Mock Test</option>` +
     units.map(u => `<option value="${u.id}" ${unit === u.id ? 'selected' : ''}>${esc(u.title)}</option>`).join('');
   const rows = (data || []).map(r => `
-    <tr><td class="rank">${r.rank <= 3 ? ['🥇', '🥈', '🥉'][r.rank - 1] : r.rank}</td>
+    <tr class="${r.rank <= 3 ? 'top' : ''}"><td class="rank">${r.rank}</td>
     <td>${esc(r.name)}</td><td>${r.best_score}</td><td>${r.best_pct}%</td><td>${r.attempts}</td></tr>`).join('');
   app.innerHTML = `
     <div class="card">
