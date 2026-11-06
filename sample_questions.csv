@@ -1,0 +1,12 @@
+unit,question,option_a,option_b,option_c,option_d,correct,explanation
+1,The number of Vedas is:,Two,Three,Four,Five,C,"The four Vedas are Rigveda, Samaveda, Yajurveda and Atharvaveda."
+1,Which Veda is generally regarded as the oldest?,Rigveda,Samaveda,Yajurveda,Atharvaveda,A,The Rigveda is the oldest of the four Vedas.
+2,Who is the author of the Ashtadhyayi?,Patanjali,Panini,Katyayana,Yaska,B,Panini composed the Ashtadhyayi.
+2,Who wrote the Mahabhashya?,Panini,Katyayana,Patanjali,Bhartrihari,C,Patanjali wrote the Mahabhashya on Panini's sutras and Katyayana's varttikas.
+3,The Nirukta is a work of:,Yaska,Panini,Sayana,Bharata,A,Yaska's Nirukta deals with etymology of Vedic words.
+4,Which of the following is a work of Kalidasa?,Mrichchhakatika,Abhijnanashakuntalam,Ratnavali,Venisamhara,B,Abhijnanashakuntalam is Kalidasa's most celebrated play.
+4,Mrichchhakatika is attributed to:,Bhasa,Kalidasa,Shudraka,Bhavabhuti,C,Mrichchhakatika is traditionally attributed to Shudraka.
+5,Who is the author of the Kiratarjuniya?,Magha,Bharavi,Shriharsha,Kalidasa,B,Bharavi composed the Kiratarjuniya.
+6,Who is the author of the Natyashastra?,Bharata,Anandavardhana,Mammata,Dandin,A,The Natyashastra is attributed to Bharata Muni.
+7,Meghaduta is a:,Mahakavya,Khandakavya,Champu,Nataka,B,Meghaduta is a lyrical messenger poem (Dutakavya) classed as a Khandakavya.
+8,अभिज्ञानशाकुन्तलम् इत्यस्य रचयिता कः?,कालिदासः,भासः,बाणभट्टः,शूद्रकः,A,अभिज्ञानशाकुन्तलम् इति नाटकं कालिदासेन रचितम्।
