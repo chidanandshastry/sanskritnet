@@ -36,3 +36,6 @@ insert into public.admins (user_id)
 select id from auth.users where email = 'your-email@example.com'
 on conflict do nothing;
 ```
+
+## Practice and quality features
+`supabase/features.sql` (run after `schema.sql` and `admin.sql`) adds: practice from your mistakes, saved questions, question reports, per-question accuracy for admins, and separate leaderboards that count only real full mocks and unit tests. Password reset emails need the Supabase Site URL set to your live address.

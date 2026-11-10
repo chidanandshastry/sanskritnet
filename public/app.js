@@ -13,11 +13,24 @@ let timer = null;
 let authMode = 'login';
 let lastResult = null;
 let reviewFilter = 'all';
+let bookmarks = new Set();                         // question ids this student has saved
+let recovery = /type=recovery/.test(location.hash); // arrived from a password-reset email
+let qscale = 1;                                     // question text size multiplier
 
 /* ---------- helpers ---------- */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const unitTitle = id => (units.find(u => u.id === id) || {}).title || ('Unit ' + id);
-const testName = unit => unit == null ? 'Full Mock Test' : unitTitle(unit);
+const testName = (unit, kind) =>
+  kind === 'mistakes' ? 'Practice: my mistakes' :
+  kind === 'saved' ? 'Practice: saved questions' :
+  (kind === 'full' || (kind == null && unit == null)) ? 'Full Mock Test' : unitTitle(unit);
+const REASONS = [['wrong_answer', 'The marked answer is wrong'], ['unclear', 'The question is unclear'],
+  ['typo', 'Spelling or typing error'], ['other', 'Something else']];
+function setScale(v) {
+  qscale = Math.max(0.85, Math.min(1.5, Math.round(v * 100) / 100));
+  document.documentElement.style.setProperty('--qs', qscale);
+  try { localStorage.setItem('qscale', String(qscale)); } catch (e) {}
+}
 const fmtTime = ms => {
   const s = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
@@ -100,8 +113,66 @@ function renderAuth() {
       <div id="autherr" class="err" role="alert"></div>
       <button class="btn primary block" type="submit" style="margin-top:8px">${su ? 'Sign up' : 'Log in'}</button>
     </form>
+    ${su ? '' : '<button class="btn ghost block" type="button" data-act="forgot" style="margin-top:6px">Forgot password?</button>'}
   </div>
   </div>`;
+}
+
+function renderForgot() {
+  app.innerHTML = `
+  <div class="card auth"><h1>Reset your password</h1>
+    <p class="muted">Enter your email and we will send you a link to choose a new password.</p>
+    <form id="forgotform">
+      <label class="f" for="femail">Email</label>
+      <input id="femail" name="email" type="email" required autocomplete="email">
+      <div id="ferr" class="err" role="alert"></div>
+      <button class="btn primary block" type="submit" style="margin-top:8px">Send reset link</button>
+    </form>
+    <button class="btn ghost block" type="button" data-act="backlogin" style="margin-top:6px">Back to log in</button>
+  </div>`;
+}
+
+async function doForgot(form) {
+  const email = String(new FormData(form).get('email') || '').trim();
+  const el = document.getElementById('ferr');
+  const btn = form.querySelector('button[type=submit]');
+  btn.disabled = true; el.classList.remove('okmsg'); el.textContent = '';
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/' });
+  btn.disabled = false;
+  if (error) { el.textContent = error.message; return; }
+  el.classList.add('okmsg');
+  el.textContent = 'If an account exists for that email, a reset link is on its way. Check your inbox and spam folder.';
+}
+
+function renderRecovery() {
+  stopTimer();
+  app.innerHTML = `
+  <div class="card auth"><h1>Choose a new password</h1>
+    <form id="recform">
+      <label class="f" for="np">New password (min 6 characters)</label>
+      <input id="np" name="password" type="password" minlength="6" required autocomplete="new-password">
+      <label class="f" for="np2">Type it again</label>
+      <input id="np2" name="password2" type="password" minlength="6" required autocomplete="new-password">
+      <div id="rcerr" class="err" role="alert"></div>
+      <button class="btn primary block" type="submit" style="margin-top:8px">Save new password</button>
+    </form>
+  </div>`;
+}
+
+async function doRecovery(form) {
+  const fd = new FormData(form);
+  const p = String(fd.get('password') || ''), p2 = String(fd.get('password2') || '');
+  const el = document.getElementById('rcerr');
+  const btn = form.querySelector('button[type=submit]');
+  el.textContent = '';
+  if (p !== p2) { el.textContent = 'The two passwords do not match.'; return; }
+  btn.disabled = true;
+  const { error } = await sb.auth.updateUser({ password: p });
+  if (error) { el.textContent = error.message; btn.disabled = false; return; }
+  recovery = false;
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  toast('Password updated. You are logged in.');
+  renderDashboard();
 }
 
 async function doAuth(form) {
@@ -172,7 +243,7 @@ function progressHTML(st) {
       ${sparkline(st.trend)}
       ${weak.length ? `<div class="weak"><b>Needs practice</b>
         ${weak.map(w => `<div class="toolbar" style="margin:8px 0 0"><span>${esc(unitTitle(w.unit))} <span class="muted small">(${w.a}% accuracy)</span></span>
-          <button class="btn sm primary" style="margin-left:auto" data-act="start" data-unit="${w.unit}">Practise</button></div>`).join('')}</div>` : ''}
+          <button class="btn sm primary" style="margin-left:auto" data-act="start" data-kind="unit" data-unit="${w.unit}">Practise</button></div>`).join('')}</div>` : ''}
     </div>`;
 }
 
@@ -180,14 +251,16 @@ function progressHTML(st) {
 async function renderDashboard() {
   stopTimer();
   loading();
-  const [u, h, s] = await Promise.all([
+  const [u, h, s, pcr] = await Promise.all([
     sb.rpc('unit_counts'),
-    sb.from('attempts').select('id,unit,total,correct,score,late,created_at')
+    sb.from('attempts').select('id,unit,kind,total,correct,score,late,created_at')
       .order('created_at', { ascending: false }).limit(10),
-    sb.rpc('my_stats')
+    sb.rpc('my_stats'),
+    sb.rpc('practice_counts')
   ]);
   if (u.error) return showError(u.error.message);
   units = u.data || [];
+  const pc = (!pcr.error && pcr.data) ? pcr.data : { mistakes: 0, saved: 0 };
   const st = (!s.error && s.data) ? s.data : null;   // progress is optional: never block the dashboard
   const byUnit = {};
   if (st) st.units.forEach(x => { byUnit[x.unit] = x; });
@@ -203,13 +276,23 @@ async function renderDashboard() {
         <div class="small muted">${x.n} question${Number(x.n) === 1 ? '' : 's'}</div>
       </div>
       <div class="uacc">${unitAccuracy(byUnit[x.id])}</div>
-      <button class="btn ${Number(x.n) === 0 ? '' : 'primary'}" data-act="start" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
+      <button class="btn ${Number(x.n) === 0 ? '' : 'primary'}" data-act="start" data-kind="unit" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
         ${Number(x.n) === 0 ? 'No questions' : 'Start test'}</button>
+    </div>`).join('');
+
+  const practiceRows = [
+    ['mistakes', 'My mistakes', 'Questions you got wrong or skipped the last time you saw them.', Number(pc.mistakes) || 0, 'to review'],
+    ['saved', 'Saved questions', 'Questions you starred while reviewing a test.', Number(pc.saved) || 0, 'saved']
+  ].map(([kind, title, desc, n, word]) => `
+    <div class="urow two">
+      <div class="uinfo"><h3>${title}</h3>
+        <div class="small muted">${desc}${n ? ` ${n} ${word}.` : ''}</div></div>
+      <button class="btn ${n ? 'primary' : ''}" data-act="start" data-kind="${kind}" ${n ? '' : 'disabled'}>${n ? 'Start practice' : 'None yet'}</button>
     </div>`).join('');
 
   const hist = (h.data || []).map(a => `
     <tr>
-      <td>${esc(testName(a.unit))}</td>
+      <td>${esc(testName(a.unit, a.kind))}</td>
       <td>${a.score} / ${a.total * 2}${a.late ? ' <span class="muted small">(overtime)</span>' : ''}</td>
       <td>${a.correct} / ${a.total}</td>
       <td class="small muted">${new Date(a.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
@@ -218,7 +301,7 @@ async function renderDashboard() {
 
   app.innerHTML = `
     ${saved ? `<div class="banner"><div><b>You have a test in progress</b><br>
-      <span class="muted small">${esc(testName(saved.unit))}, ${Object.keys(saved.answers || {}).length} of ${saved.qs.length} answered</span></div>
+      <span class="muted small">${esc(testName(saved.unit, saved.kind))},${Object.keys(saved.answers || {}).length} of ${saved.qs.length} answered</span></div>
       <div><button class="btn primary" data-act="resume">Resume</button>
       <button class="btn" data-act="discard">Discard</button></div></div>` : ''}
     <div class="card hero">
@@ -227,9 +310,11 @@ async function renderDashboard() {
         <p class="muted">${perTest} questions drawn from all ten units, two marks each, no negative marking.
           You get ${Math.round(perTest * (cfg.MINUTES_PER_QUESTION || 1.2))} minutes.</p>
       </div>
-      <button class="btn primary" data-act="start" data-unit="" ${totalQ === 0 ? 'disabled' : ''}>Start full mock</button>
+      <button class="btn primary" data-act="start" data-kind="full" ${totalQ === 0 ? 'disabled' : ''}>Start full mock</button>
     </div>
     ${progressHTML(st)}
+    <h2 class="section-title">Practice</h2>
+    <div class="ledger">${practiceRows}</div>
     <h2 class="section-title">Unit-wise tests</h2>
     <div class="ledger">${unitCards}</div>
     <h2 class="section-title">Your recent attempts</h2>
@@ -239,12 +324,12 @@ async function renderDashboard() {
 }
 
 /* ---------- running a test ---------- */
-async function startTest(unit) {
+async function startTest(kind, unit) {
   loading('Preparing your test…');
-  const { data, error } = await sb.rpc('start_test', { p_unit: unit, p_count: cfg.QUESTIONS_PER_TEST || 100 });
+  const { data, error } = await sb.rpc('start_test', { p_unit: unit, p_count: cfg.QUESTIONS_PER_TEST || 100, p_kind: kind });
   if (error) { toast(error.message); return renderDashboard(); }
   const dur = Math.round(data.questions.length * (cfg.MINUTES_PER_QUESTION || 1.2) * 60000);
-  test = { sessionId: data.session_id, unit, qs: data.questions, answers: {}, marked: {}, idx: 0, endAt: Date.now() + dur };
+  test = { sessionId: data.session_id, kind: data.kind, unit: data.unit, qs: data.questions, answers: {}, marked: {}, idx: 0, endAt: Date.now() + dur };
   persist();
   renderTest();
 }
@@ -270,6 +355,7 @@ function renderTest() {
       <div class="test-head">
         <span class="badge">Question ${t.idx + 1} of ${t.qs.length}</span>
         <span class="badge soft">${esc(unitTitle(q.unit))}</span>
+        <span class="sizer"><button class="btn sm" data-act="smaller" aria-label="Smaller text">A−</button><button class="btn sm" data-act="larger" aria-label="Larger text">A+</button></span>
         <span id="timer" class="timer"></span>
       </div>
       <div class="qtext sa">${esc(q.question)}</div>
@@ -281,6 +367,7 @@ function renderTest() {
         <span class="spacer"></span>
         <button class="btn primary" data-act="next" ${t.idx === t.qs.length - 1 ? 'disabled' : ''}>Next</button>
       </div>
+      <p class="hint small muted">Keys: A to D choose an answer, left and right arrows move between questions, M marks for review.</p>
     </section>
     <aside class="card palette">
       <b>${answered} / ${t.qs.length} answered</b>
@@ -333,7 +420,7 @@ function renderResult(r) {
   const pct = r.max_score ? (100 * r.score / r.max_score).toFixed(1) : '0.0';
   app.innerHTML = `
     <div class="card rule">
-      <h1>${esc(testName(r.unit))} result</h1>
+      <h1>${esc(testName(r.unit, r.kind))} result</h1>
       <div class="stats">
         <div class="stat big"><b>${r.score} / ${r.max_score}</b><span>Score (${pct}%)</span></div>
         <div class="stat"><b style="color:var(--ok)">${r.correct}</b><span>Correct</span></div>
@@ -354,6 +441,45 @@ function renderResult(r) {
     <div id="reviewlist"></div>`;
   renderReviewList();
   window.scrollTo(0, 0);
+  loadBookmarks(r);
+}
+
+async function loadBookmarks(r) {
+  const { data } = await sb.rpc('get_bookmark_ids');
+  bookmarks = new Set(data || []);
+  if (lastResult === r && document.getElementById('reviewlist')) renderReviewList();
+}
+
+function openReport(id) {
+  const x = lastResult && lastResult.review.find(q => q.id === id);
+  if (!x) return;
+  const dlg = document.getElementById('rdlg');
+  dlg.innerHTML = `
+    <form id="rform" method="dialog">
+      <h2>Report this question</h2>
+      <p class="muted small sa">${esc(x.question.length > 140 ? x.question.slice(0, 140) + '…' : x.question)}</p>
+      <input type="hidden" name="id" value="${id}">
+      <label class="f" for="rreason">What is wrong?</label>
+      <select id="rreason" name="reason">${REASONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+      <label class="f" for="rnote">Details (optional)</label>
+      <textarea id="rnote" name="note" rows="3" maxlength="500"></textarea>
+      <div id="rerr" class="err" role="alert"></div>
+      <div class="actions"><button class="btn primary" type="submit">Send report</button>
+        <button class="btn" type="button" data-act="closereport">Cancel</button></div>
+    </form>`;
+  dlg.showModal();
+}
+
+async function sendReport(form) {
+  const fd = new FormData(form);
+  const btn = form.querySelector('button[type=submit]');
+  btn.disabled = true;
+  const { error } = await sb.rpc('report_question', {
+    p_question_id: Number(fd.get('id')), p_reason: fd.get('reason'), p_note: fd.get('note') });
+  btn.disabled = false;
+  if (error) { document.getElementById('rerr').textContent = error.message; return; }
+  document.getElementById('rdlg').close();
+  toast('Thanks. The admins will check this question.');
 }
 
 function renderReviewList() {
@@ -370,7 +496,9 @@ function renderReviewList() {
     const label = s === 'right' ? ['r', 'Correct'] : s === 'wrong' ? ['w', 'Wrong'] : ['u', 'Not attempted'];
     return `<div class="card rv">
       <div class="test-head"><span class="badge">Q${i + 1}</span><span class="badge soft">${esc(unitTitle(x.unit))}</span>
-        <span class="verdict ${label[0]}" style="margin-left:auto">${label[1]}</span></div>
+        <span class="verdict ${label[0]}" style="margin-left:auto">${label[1]}</span>
+        <button class="btn sm ghost" data-act="bookmark" data-id="${x.id}" aria-pressed="${bookmarks.has(x.id)}">${bookmarks.has(x.id) ? '★ Saved' : '☆ Save'}</button>
+        <button class="btn sm ghost" data-act="report" data-id="${x.id}">Report</button></div>
       <div class="qtext sa">${esc(x.question)}</div>
       <div class="opts">${opts}</div>
       ${x.explanation ? `<div class="expl sa"><b>Explanation:</b> ${esc(x.explanation)}</div>` : ''}
@@ -414,7 +542,21 @@ const actions = {
   lb: () => renderLeaderboard(null),
   logout: async () => { stopTimer(); test = null; await sb.auth.signOut(); },
   mode: el => { authMode = el.dataset.m; renderAuth(); },
-  start: el => startTest(el.dataset.unit === '' ? null : Number(el.dataset.unit)),
+  start: el => startTest(el.dataset.kind || 'unit', el.dataset.unit ? Number(el.dataset.unit) : null),
+  forgot: () => renderForgot(),
+  backlogin: () => { authMode = 'login'; renderAuth(); },
+  smaller: () => setScale(qscale - 0.1),
+  larger: () => setScale(qscale + 0.1),
+  bookmark: async el => {
+    const id = Number(el.dataset.id);
+    const { data, error } = await sb.rpc('toggle_bookmark', { p_question_id: id });
+    if (error) return toast(error.message);
+    if (data) bookmarks.add(id); else bookmarks.delete(id);
+    renderReviewList();
+    toast(data ? 'Saved. Practise it from the Practice section on your dashboard.' : 'Removed from saved questions.');
+  },
+  report: el => openReport(Number(el.dataset.id)),
+  closereport: () => document.getElementById('rdlg').close(),
   resume: () => { test = loadSaved(); if (test) renderTest(); else renderDashboard(); },
   discard: () => { if (confirm('Discard the unfinished test?')) { clearSaved(); renderDashboard(); } },
   goto: el => { test.idx = Number(el.dataset.i); persist(); renderTest(); },
@@ -431,24 +573,47 @@ const actions = {
   }
 };
 
+const PRE_LOGIN = ['mode', 'forgot', 'backlogin'];   // actions that work before logging in
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
-  if (!el || !session) { if (el && el.dataset.act === 'mode') actions.mode(el); return; }
+  if (!el) return;
+  if (!session && !PRE_LOGIN.includes(el.dataset.act)) return;
   const f = actions[el.dataset.act];
   if (f) { e.preventDefault(); f(el); }
+});
+
+// Keyboard shortcuts during a test
+document.addEventListener('keydown', e => {
+  if (!test || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || (t.tagName === 'INPUT' && t.type !== 'radio'))) return;
+  if (document.querySelector('dialog[open]')) return;
+  const k = e.key.toLowerCase();
+  if (k.length === 1 && 'abcd'.includes(k)) choose(k.toUpperCase());
+  else if (k.length === 1 && '1234'.includes(k)) choose('ABCD'[Number(k) - 1]);
+  else if (k === 'arrowright' || k === 'n') actions.next();
+  else if (k === 'arrowleft' || k === 'p') actions.prev();
+  else if (k === 'm') actions.mark();
+  else return;
+  e.preventDefault();
 });
 document.addEventListener('change', e => {
   if (e.target.name === 'opt' && test) choose(e.target.value);
   if (e.target.id === 'lbunit') renderLeaderboard(e.target.value === '' ? null : Number(e.target.value));
 });
 document.addEventListener('submit', e => {
-  if (e.target.id === 'authform') { e.preventDefault(); doAuth(e.target); }
+  const id = e.target.id;
+  if (id === 'authform') { e.preventDefault(); doAuth(e.target); }
+  else if (id === 'forgotform') { e.preventDefault(); doForgot(e.target); }
+  else if (id === 'recform') { e.preventDefault(); doRecovery(e.target); }
+  else if (id === 'rform') { e.preventDefault(); sendReport(e.target); }
 });
 
 /* ---------- start-up ---------- */
 function route() {
   renderTopbar();
   if (!session) return renderAuth();
+  if (recovery) return renderRecovery();
   renderDashboard();
 }
 
@@ -462,11 +627,13 @@ async function init() {
   sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   const { data } = await sb.auth.getSession();
   session = data.session;
-  sb.auth.onAuthStateChange((_event, s) => {
+  sb.auth.onAuthStateChange((event, s) => {
+    if (event === 'PASSWORD_RECOVERY') recovery = true;
     const changed = (s && s.user && s.user.id) !== (session && session.user && session.user.id);
     session = s;
-    if (changed) { test = null; route(); }
+    if (changed || event === 'PASSWORD_RECOVERY') { test = null; route(); }
   });
+  try { const v = parseFloat(localStorage.getItem('qscale')); if (v) setScale(v); } catch (e) {}
   route();
 }
 

@@ -12,7 +12,10 @@ let units = [];
 let qs = { unit: '', search: '', page: 0, total: 0, rows: [] };
 let students = [];
 let importRows = null;
+let openReports = 0;
+let rep = { status: 'open', rows: [] };
 const PAGE = 25;
+const REASON_LABEL = { wrong_answer: 'Marked answer is wrong', unclear: 'Question is unclear', typo: 'Spelling or typing error', other: 'Something else' };
 
 /* ---------- helpers ---------- */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -28,7 +31,8 @@ const errMsg = e => (e && e.message) || String(e);
 
 /* ---------- top bar ---------- */
 function renderTopbar() {
-  const tabs = [['overview', 'Overview'], ['questions', 'Questions'], ['import', 'Import'], ['units', 'Units'], ['students', 'Students']];
+  const tabs = [['overview', 'Overview'], ['questions', 'Questions'], ['reports', 'Reports' + (openReports ? ' (' + openReports + ')' : '')],
+    ['import', 'Import'], ['units', 'Units'], ['students', 'Students']];
   topbar.innerHTML = `
     <div class="brand"><span class="dot sa">सं</span>Admin</div>
     ${tabs.map(([k, l]) => `<button class="btn sm ${tab === k ? 'primary' : 'ghost'}" data-act="tab" data-t="${k}">${l}</button>`).join('')}
@@ -49,9 +53,14 @@ async function showOverview() {
   const { data, error } = await sb.rpc('admin_stats');
   if (error) return message('Error', errMsg(error), false);
   units = data.units;
+  openReports = Number(data.open_reports) || 0;
+  renderTopbar();
   const low = data.units.filter(u => u.n < 10);
   app.innerHTML = `
     <h1>Overview</h1>
+    ${openReports ? `<div class="banner"><div><b>${openReports} open question report${openReports === 1 ? '' : 's'}</b><br>
+      <span class="muted small">Students flagged questions that may have a wrong answer key or a typo.</span></div>
+      <button class="btn primary" data-act="tab" data-t="reports">Review reports</button></div>` : ''}
     <div class="stats">
       <div class="stat big"><b>${data.students}</b><span>Students</span></div>
       <div class="stat"><b>${data.attempts}</b><span>Tests taken</span></div>
@@ -67,7 +76,7 @@ async function showOverview() {
     </tbody></table></div></div>
     <h2 class="section-title">Latest attempts</h2>
     <div class="card">${data.recent.length ? `<div class="tablewrap"><table><thead><tr><th>Student</th><th>Test</th><th>Score</th><th>When</th></tr></thead><tbody>
-      ${data.recent.map(r => `<tr><td>${esc(r.name)}</td><td>${r.unit == null ? 'Full mock' : esc(unitTitle(r.unit))}</td><td>${r.score} / ${r.total * 2}</td><td class="small muted">${fmtDate(r.created_at)}</td></tr>`).join('')}
+      ${data.recent.map(r => `<tr><td>${esc(r.name)}</td><td>${r.kind === 'mistakes' ? 'Practice: mistakes' : r.kind === 'saved' ? 'Practice: saved' : r.unit == null ? 'Full mock' : esc(unitTitle(r.unit))}</td><td>${r.score} / ${r.total * 2}</td><td class="small muted">${fmtDate(r.created_at)}</td></tr>`).join('')}
     </tbody></table></div>` : '<p class="muted" style="margin:0">No attempts yet.</p>'}</div>`;
 }
 
@@ -90,12 +99,18 @@ async function showQuestions(keepScroll = false) {
         <input id="f-search" type="text" placeholder="Search question text…" value="${esc(qs.search)}">
         <button class="btn" data-act="search">Search</button>
       </div>
-      ${qs.rows.length ? `<div class="tablewrap"><table><thead><tr><th>ID</th><th>Unit</th><th>Question</th><th>Ans</th><th></th></tr></thead><tbody>
-        ${qs.rows.map(r => `<tr>
+      ${qs.rows.length ? `<div class="tablewrap"><table><thead><tr><th>ID</th><th>Unit</th><th>Question</th><th>Ans</th><th>Students right</th><th></th></tr></thead><tbody>
+        ${qs.rows.map(r => {
+          const seen = Number(r.seen), pct = seen ? Math.round(100 * Number(r.right_count) / seen) : null;
+          const flags = (seen >= 5 && pct < 25 ? '<span class="flag">Check key</span>' : '') +
+                        (Number(r.open_reports) ? '<span class="flag">Reported</span>' : '');
+          return `<tr>
           <td class="muted small">${r.id}</td><td class="small">${esc(unitTitle(r.unit))}</td>
           <td class="sa qcell">${esc(r.question)}</td><td><b>${esc(r.correct)}</b></td>
+          <td class="small">${pct === null ? '<span class="muted">Not taken yet</span>' : pct + '% of ' + seen} ${flags}</td>
           <td style="white-space:nowrap"><button class="btn sm" data-act="editq" data-id="${r.id}">Edit</button>
-            <button class="btn sm" data-act="delq" data-id="${r.id}">Delete</button></td></tr>`).join('')}
+            <button class="btn sm" data-act="delq" data-id="${r.id}">Delete</button></td></tr>`;
+        }).join('')}
       </tbody></table></div>
       <div class="actions"><button class="btn sm" data-act="qprev" ${qs.page === 0 ? 'disabled' : ''}>Previous</button>
         <span class="muted small" style="align-self:center">Page ${qs.page + 1} of ${pages}</span>
@@ -136,7 +151,41 @@ async function saveQuestion(form) {
     p_c: f.get('option_c'), p_d: f.get('option_d'), p_correct: f.get('correct'), p_expl: f.get('explanation') });
   btn.disabled = false;
   if (error) { document.getElementById('qerr').textContent = errMsg(error); return; }
-  dlg.close(); toast('Question saved'); showQuestions();
+  dlg.close(); toast('Question saved');
+  if (tab === 'reports') showReports(); else showQuestions();
+}
+
+/* ---------- reports ---------- */
+async function showReports() {
+  if (!units.length) { const u = await sb.rpc('admin_stats'); if (u.data) units = u.data.units; }
+  const { data, error } = await sb.rpc('admin_list_reports', { p_status: rep.status });
+  if (error) return message('Error', errMsg(error), false);
+  rep.rows = data;
+  if (rep.status === 'open') { openReports = data.length; renderTopbar(); }
+  app.innerHTML = `
+    <div class="test-head"><h1 style="margin:0">Question reports</h1>
+      <select id="r-status" style="max-width:180px;margin-left:auto" aria-label="Report status">
+        <option value="open" ${rep.status === 'open' ? 'selected' : ''}>Open</option>
+        <option value="resolved" ${rep.status === 'resolved' ? 'selected' : ''}>Resolved</option></select></div>
+    <p class="muted">Check each question, fix it if needed, then mark the report resolved.</p>
+    ${data.length ? data.map(r => `
+      <div class="card rv">
+        <div class="test-head">
+          <span class="badge">${esc(REASON_LABEL[r.reason] || r.reason)}</span>
+          <span class="muted small">from ${esc(r.student)}, ${fmtDate(r.created_at)}</span>
+          ${Number(r.open_for_question) > 1 ? `<span class="flag">${r.open_for_question} open reports on this question</span>` : ''}
+        </div>
+        <div class="qtext sa">${esc(r.question)}</div>
+        <p class="small">Marked answer: <b>${esc(r.correct)}</b></p>
+        ${r.note ? `<div class="expl">${esc(r.note)}</div>` : ''}
+        <div class="actions">
+          <button class="btn" data-act="editreported" data-q="${r.question_id}">Edit question</button>
+          ${r.status === 'open'
+            ? `<button class="btn primary" data-act="resolve" data-id="${r.id}" data-s="resolved">Mark resolved</button>`
+            : `<button class="btn" data-act="resolve" data-id="${r.id}" data-s="open">Reopen</button>`}
+        </div>
+      </div>`).join('')
+    : `<div class="card"><p class="muted center" style="margin:0">${rep.status === 'open' ? 'No open reports. Nice.' : 'No resolved reports yet.'}</p></div>`}`;
 }
 
 /* ---------- import ---------- */
@@ -291,6 +340,7 @@ function go(t) {
   tab = t; renderTopbar();
   if (t === 'overview') showOverview();
   else if (t === 'questions') { qs.page = 0; showQuestions(); }
+  else if (t === 'reports') showReports();
   else if (t === 'import') showImport();
   else if (t === 'units') showUnits();
   else if (t === 'students') showStudents();
@@ -308,6 +358,16 @@ const actions = {
     toast('Question deleted'); showQuestions();
   },
   closedlg: () => dlg.close(),
+  editreported: async el => {
+    const { data, error } = await sb.rpc('admin_list_questions', { p_id: Number(el.dataset.q), p_limit: 1 });
+    if (error || !data.rows.length) return toast(error ? errMsg(error) : 'That question no longer exists');
+    openQuestionDialog(data.rows[0]);
+  },
+  resolve: async el => {
+    const { error } = await sb.rpc('admin_resolve_report', { p_id: Number(el.dataset.id), p_status: el.dataset.s });
+    if (error) return toast(errMsg(error));
+    toast(el.dataset.s === 'resolved' ? 'Report resolved' : 'Report reopened'); showReports();
+  },
   search: () => {
     qs.unit = document.getElementById('f-unit').value;
     qs.search = document.getElementById('f-search').value; qs.page = 0; showQuestions();
@@ -328,6 +388,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   if (e.target.id === 'csvfile' && e.target.files[0]) handleFile(e.target.files[0]);
   if (e.target.id === 'f-unit') actions.search();
+  if (e.target.id === 'r-status') { rep.status = e.target.value; showReports(); }
 });
 document.addEventListener('input', e => { if (e.target.id === 's-search') renderStudentRows(e.target.value); });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'f-search') actions.search(); });
