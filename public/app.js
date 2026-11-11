@@ -290,7 +290,7 @@ async function renderDashboard() {
         <div class="small muted">${x.n} question${Number(x.n) === 1 ? '' : 's'}</div>
       </div>
       <div class="uacc">${unitAccuracy(byUnit[x.id])}</div>
-      <button class="btn ${Number(x.n) === 0 ? '' : 'primary'}" data-act="start" data-kind="unit" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
+      <button class="btn" data-act="start" data-kind="unit" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
         ${Number(x.n) === 0 ? 'No questions' : 'Start test'}</button>
     </div>`).join('');
 
@@ -301,7 +301,7 @@ async function renderDashboard() {
     <div class="urow two">
       <div class="uinfo"><h3>${title}</h3>
         <div class="small muted">${desc}${n ? ` ${n} ${word}.` : ''}</div></div>
-      <button class="btn ${n ? 'primary' : ''}" data-act="start" data-kind="${kind}" ${n ? '' : 'disabled'}>${n ? 'Start practice' : 'None yet'}</button>
+      <button class="btn" data-act="start" data-kind="${kind}" ${n ? '' : 'disabled'}>${n ? 'Start practice' : 'None yet'}</button>
     </div>`).join('');
 
   const hist = (h.data || []).map(a => `
@@ -327,8 +327,11 @@ async function renderDashboard() {
          <button class="btn" data-act="dailylb">Today's leaderboard</button>`
       : `<button class="btn primary" data-act="start" data-kind="daily">${dd.in_progress ? 'Continue today\'s test' : 'Start today\'s test'}</button>
          <button class="btn" data-act="dailylb">Today's leaderboard</button>`;
+    const dnum = toDev(Number(new Date().toLocaleDateString('en-GB', { day: 'numeric', timeZone: 'Asia/Kolkata' })));
+    const mon = new Date().toLocaleDateString('en-IN', { month: 'long', timeZone: 'Asia/Kolkata' });
     dailyCard = `<div class="card hero daily">
-      <div><h1>Test of the day</h1>
+      <div class="daynum" aria-hidden="true"><b>${dnum}</b><span>${esc(mon)}</span></div>
+      <div class="dailybody"><h1>Test of the day</h1>
         <div class="small muted" style="margin-bottom:.5em">${esc(today)}${streak ? ` &middot; <b class="streak">${streak}-day streak</b>` : ''}</div>${body}</div>
       <div class="hero-actions">${btns}</div></div>`;
   }
