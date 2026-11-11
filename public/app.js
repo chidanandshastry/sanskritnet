@@ -262,6 +262,15 @@ async function renderDashboard() {
   ]);
   if (u.error) return showError(u.error.message);
   units = u.data || [];
+  let streak = 0;
+  try {
+    const { data: da } = await sb.from('attempts').select('created_at').eq('kind', 'daily').order('created_at', { ascending: false }).limit(60);
+    const ist = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });   // YYYY-MM-DD
+    const days = new Set((da || []).map(x => ist(x.created_at)));
+    const step = new Date();
+    if (!days.has(ist(step))) step.setDate(step.getDate() - 1);   // today not done yet: streak is still alive
+    while (days.has(ist(step))) { streak++; step.setDate(step.getDate() - 1); }
+  } catch (e) { streak = 0; }
   const dd = (!dly.error && dly.data && Number(dly.data.count) > 0) ? dly.data : null;   // hidden if the bank is empty
   const pc = (!pcr.error && pcr.data) ? pcr.data : { mistakes: 0, saved: 0 };
   const st = (!s.error && s.data) ? s.data : null;   // progress is optional: never block the dashboard
@@ -320,7 +329,7 @@ async function renderDashboard() {
          <button class="btn" data-act="dailylb">Today's leaderboard</button>`;
     dailyCard = `<div class="card hero daily">
       <div><h1>Test of the day</h1>
-        <div class="small muted" style="margin-bottom:.5em">${esc(today)}</div>${body}</div>
+        <div class="small muted" style="margin-bottom:.5em">${esc(today)}${streak ? ` &middot; <b class="streak">${streak}-day streak</b>` : ''}</div>${body}</div>
       <div class="hero-actions">${btns}</div></div>`;
   }
 
@@ -460,6 +469,7 @@ function renderResult(r) {
       <div class="actions">
         <button class="btn primary" data-act="home">Back to dashboard</button>
         <button class="btn" data-act="lb">View leaderboard</button>
+        <button class="btn" data-act="share">Share score</button>
       </div>
     </div>
     <div class="chips">
@@ -577,6 +587,15 @@ const actions = {
   home: () => renderDashboard(),
   lb: () => renderLeaderboard(null),
   dailylb: () => renderLeaderboard('daily'),
+  share: async () => {
+    const r = lastResult; if (!r) return;
+    const url = location.origin + location.pathname;
+    const text = `I scored ${r.score}/${r.max_score} (${r.correct} correct) in the ${testName(r.unit, r.kind)} on UGC NET Sanskrit Mock Tests. Can you beat it?\n${url}`;
+    try {
+      if (navigator.share) { await navigator.share({ text }); return; }
+      await navigator.clipboard.writeText(text); toast('Score copied. Paste it anywhere to share.');
+    } catch (e) { if (e && e.name === 'AbortError') return; window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener'); }
+  },
   logout: async () => { stopTimer(); test = null; await sb.auth.signOut(); },
   mode: el => { authMode = el.dataset.m; renderAuth(); },
   start: el => startTest(el.dataset.kind || 'unit', el.dataset.unit ? Number(el.dataset.unit) : null),

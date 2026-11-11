@@ -212,3 +212,8 @@ dialog.dlg::backdrop{background:rgba(11,20,36,.6)}
 .hero.daily{border-top-color:var(--brand)}
 .hero-actions{display:flex;gap:8px;flex-wrap:wrap}
 @media (max-width:720px){.hero-actions{width:100%}.hero-actions .btn{flex:1}}
+
+/* polish: odd last stat tile fills the row; wide tables scroll instead of clipping */
+@media (max-width:560px){.stats .stat:last-child:nth-child(odd){grid-column:1/-1}}
+.tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.streak{color:var(--brand)}
