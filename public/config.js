@@ -6,5 +6,6 @@ window.APP_CONFIG = {
   SUPABASE_ANON_KEY: "sb_publishable_Ua6cqtCMgGV9RZ9xarY3WQ_UQIh_Yv3",
 
   QUESTIONS_PER_TEST: 100,   // questions in every test
+  MIN_UNITS_FOR_FULL: 5,     // full mock unlocks when this many units have 10+ questions
   MINUTES_PER_QUESTION: 1.2  // 100 questions = 120 minutes (keep in sync with schema.sql: 72 sec)
 };

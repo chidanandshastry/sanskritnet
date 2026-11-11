@@ -270,6 +270,8 @@ async function renderDashboard() {
   const totalQ = units.reduce((a, x) => a + Number(x.n), 0);
   const saved = loadSaved();
   const perTest = cfg.QUESTIONS_PER_TEST || 100;
+  const readyUnits = units.filter(x => Number(x.n) >= 10).length;
+  const fullReady = readyUnits >= (cfg.MIN_UNITS_FOR_FULL || 5);   // a "full" mock from one unit would mislead students
 
   const unitCards = units.map(x => `
     <div class="urow">
@@ -333,8 +335,9 @@ async function renderDashboard() {
         <h1>Full Mock Test</h1>
         <p class="muted">${perTest} questions drawn from all ten units, two marks each, no negative marking.
           You get ${Math.round(perTest * (cfg.MINUTES_PER_QUESTION || 1.2))} minutes.</p>
+        ${fullReady ? '' : `<p class="small muted"><b>Opening soon.</b> Questions for the other units are still being added, so the full mock unlocks once more units are ready. Unit tests and daily tests are open now.</p>`}
       </div>
-      <button class="btn primary" data-act="start" data-kind="full" ${totalQ === 0 ? 'disabled' : ''}>Start full mock</button>
+      <button class="btn primary" data-act="start" data-kind="full" ${fullReady ? '' : 'disabled'}>${fullReady ? 'Start full mock' : 'Coming soon'}</button>
     </div>
     ${progressHTML(st)}
     <h2 class="section-title">Practice</h2>
