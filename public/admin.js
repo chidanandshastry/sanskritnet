@@ -76,7 +76,7 @@ async function showOverview() {
     </tbody></table></div></div>
     <h2 class="section-title">Latest attempts</h2>
     <div class="card">${data.recent.length ? `<div class="tablewrap"><table><thead><tr><th>Student</th><th>Test</th><th>Score</th><th>When</th></tr></thead><tbody>
-      ${data.recent.map(r => `<tr><td>${esc(r.name)}</td><td>${r.kind === 'mistakes' ? 'Practice: mistakes' : r.kind === 'saved' ? 'Practice: saved' : r.unit == null ? 'Full mock' : esc(unitTitle(r.unit))}</td><td>${r.score} / ${r.total * 2}</td><td class="small muted">${fmtDate(r.created_at)}</td></tr>`).join('')}
+      ${data.recent.map(r => `<tr><td>${esc(r.name)}</td><td>${r.kind === 'daily' ? 'Test of the day' : r.kind === 'mistakes' ? 'Practice: mistakes' : r.kind === 'saved' ? 'Practice: saved' : r.unit == null ? 'Full mock' : esc(unitTitle(r.unit))}</td><td>${r.score} / ${r.total * 2}</td><td class="small muted">${fmtDate(r.created_at)}</td></tr>`).join('')}
     </tbody></table></div>` : '<p class="muted" style="margin:0">No attempts yet.</p>'}</div>`;
 }
 

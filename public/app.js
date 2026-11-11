@@ -23,6 +23,7 @@ const unitTitle = id => (units.find(u => u.id === id) || {}).title || ('Unit ' +
 const testName = (unit, kind) =>
   kind === 'mistakes' ? 'Practice: my mistakes' :
   kind === 'saved' ? 'Practice: saved questions' :
+  kind === 'daily' ? 'Test of the day' :
   (kind === 'full' || (kind == null && unit == null)) ? 'Full Mock Test' : unitTitle(unit);
 const REASONS = [['wrong_answer', 'The marked answer is wrong'], ['unclear', 'The question is unclear'],
   ['typo', 'Spelling or typing error'], ['other', 'Something else']];
@@ -251,15 +252,17 @@ function progressHTML(st) {
 async function renderDashboard() {
   stopTimer();
   loading();
-  const [u, h, s, pcr] = await Promise.all([
+  const [u, h, s, pcr, dly] = await Promise.all([
     sb.rpc('unit_counts'),
     sb.from('attempts').select('id,unit,kind,total,correct,score,late,created_at')
       .order('created_at', { ascending: false }).limit(10),
     sb.rpc('my_stats'),
-    sb.rpc('practice_counts')
+    sb.rpc('practice_counts'),
+    sb.rpc('daily_status')
   ]);
   if (u.error) return showError(u.error.message);
   units = u.data || [];
+  const dd = (!dly.error && dly.data && Number(dly.data.count) > 0) ? dly.data : null;   // hidden if the bank is empty
   const pc = (!pcr.error && pcr.data) ? pcr.data : { mistakes: 0, saved: 0 };
   const st = (!s.error && s.data) ? s.data : null;   // progress is optional: never block the dashboard
   const byUnit = {};
@@ -299,12 +302,33 @@ async function renderDashboard() {
       <td><button class="btn sm" data-act="review" data-id="${a.id}">Review</button></td>
     </tr>`).join('');
 
+  let dailyCard = '';
+  if (dd) {
+    const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Kolkata' });
+    const mins = Math.round(dd.count * (cfg.MINUTES_PER_QUESTION || 1.2));
+    const body = dd.done
+      ? (dd.late
+          ? `<p class="muted">You finished today's test over the time limit, so it is not ranked. A new test opens at midnight.</p>`
+          : `<p class="muted">You scored <b>${dd.score} of ${dd.total * 2}</b> and rank <b>#${dd.rank}</b> of ${dd.players} so far today. A new test opens at midnight.</p>`)
+      : `<p class="muted">${dd.count} questions, the same for every student, ${mins} minutes. You get one attempt, so it counts.</p>`;
+    const btns = dd.done
+      ? `<button class="btn primary" data-act="review" data-id="${dd.attempt_id}">Review answers</button>
+         <button class="btn" data-act="dailylb">Today's leaderboard</button>`
+      : `<button class="btn primary" data-act="start" data-kind="daily">${dd.in_progress ? 'Continue today\'s test' : 'Start today\'s test'}</button>
+         <button class="btn" data-act="dailylb">Today's leaderboard</button>`;
+    dailyCard = `<div class="card hero daily">
+      <div><h1>Test of the day</h1>
+        <div class="small muted" style="margin-bottom:.5em">${esc(today)}</div>${body}</div>
+      <div class="hero-actions">${btns}</div></div>`;
+  }
+
   app.innerHTML = `
     ${saved ? `<div class="banner"><div><b>You have a test in progress</b><br>
-      <span class="muted small">${esc(testName(saved.unit, saved.kind))},${Object.keys(saved.answers || {}).length} of ${saved.qs.length} answered</span></div>
+      <span class="muted small">${esc(testName(saved.unit, saved.kind))}, ${Object.keys(saved.answers || {}).length} of ${saved.qs.length} answered</span></div>
       <div><button class="btn primary" data-act="resume">Resume</button>
-      <button class="btn" data-act="discard">Discard</button></div></div>` : ''}
-    <div class="card hero">
+      ${saved.kind === 'daily' ? '' : '<button class="btn" data-act="discard">Discard</button>'}</div></div>` : ''}
+    ${dailyCard}
+    <div class="card hero" style="margin-top:14px">
       <div>
         <h1>Full Mock Test</h1>
         <p class="muted">${perTest} questions drawn from all ten units, two marks each, no negative marking.
@@ -329,7 +353,8 @@ async function startTest(kind, unit) {
   const { data, error } = await sb.rpc('start_test', { p_unit: unit, p_count: cfg.QUESTIONS_PER_TEST || 100, p_kind: kind });
   if (error) { toast(error.message); return renderDashboard(); }
   const dur = Math.round(data.questions.length * (cfg.MINUTES_PER_QUESTION || 1.2) * 60000);
-  test = { sessionId: data.session_id, kind: data.kind, unit: data.unit, qs: data.questions, answers: {}, marked: {}, idx: 0, endAt: Date.now() + dur };
+  test = { sessionId: data.session_id, kind: data.kind, unit: data.unit, qs: data.questions, answers: {}, marked: {}, idx: 0,
+    endAt: Date.now() + dur - (Number(data.elapsed_sec) || 0) * 1000 };   // reopened daily test keeps its original clock
   persist();
   renderTest();
 }
@@ -515,24 +540,32 @@ async function openReview(id) {
 }
 
 /* ---------- leaderboard ---------- */
-async function renderLeaderboard(unit = null) {
+async function renderLeaderboard(unit = null) {   // null = full mock, number = unit, 'daily' = test of the day
   stopTimer();
   loading('Loading leaderboard…');
   if (!units.length) { const u = await sb.rpc('unit_counts'); units = u.data || []; }
-  const { data, error } = await sb.rpc('get_leaderboard', { p_unit: unit });
+  const daily = unit === 'daily';
+  const { data, error } = daily ? await sb.rpc('get_daily_leaderboard', { p_day: null })
+                                : await sb.rpc('get_leaderboard', { p_unit: unit });
   if (error) return showError(error.message);
-  const opts = `<option value="">Full Mock Test</option>` +
+  const opts = `<option value="daily" ${daily ? 'selected' : ''}>Test of the day (today)</option>` +
+    `<option value="" ${unit === null ? 'selected' : ''}>Full Mock Test</option>` +
     units.map(u => `<option value="${u.id}" ${unit === u.id ? 'selected' : ''}>${esc(u.title)}</option>`).join('');
-  const rows = (data || []).map(r => `
-    <tr class="${r.rank <= 3 ? 'top' : ''}"><td class="rank">${r.rank}</td>
-    <td>${esc(r.name)}</td><td>${r.best_score}</td><td>${r.best_pct}%</td><td>${r.attempts}</td></tr>`).join('');
+  const mmss = sec => Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  const rows = (data || []).map(r => daily
+    ? `<tr class="${r.rank <= 3 ? 'top' : ''}"><td class="rank">${r.rank}</td>
+       <td>${esc(r.name)}</td><td>${r.score}</td><td>${r.pct}%</td><td>${mmss(r.duration_sec)}</td></tr>`
+    : `<tr class="${r.rank <= 3 ? 'top' : ''}"><td class="rank">${r.rank}</td>
+       <td>${esc(r.name)}</td><td>${r.best_score}</td><td>${r.best_pct}%</td><td>${r.attempts}</td></tr>`).join('');
+  const head = daily ? '<th>Rank</th><th>Name</th><th>Score</th><th>Score %</th><th>Time taken</th>'
+                     : '<th>Rank</th><th>Name</th><th>Best score</th><th>Best %</th><th>Attempts</th>';
   app.innerHTML = `
     <div class="card">
       <div class="test-head"><h1 style="margin:0">Leaderboard</h1>
         <select id="lbunit" style="max-width:260px;margin-left:auto" aria-label="Choose test">${opts}</select></div>
-      <p class="muted small">Ranked by each student's best attempt (completed within the time limit).</p>
-      ${rows ? `<div class="tablewrap"><table><thead><tr><th>Rank</th><th>Name</th><th>Best score</th><th>Best %</th><th>Attempts</th></tr></thead><tbody>${rows}</tbody></table></div>`
-             : '<p class="muted center">No scores yet. Be the first!</p>'}
+      <p class="muted small">${daily ? "Today's test only. Higher score ranks first; equal scores are ranked by who finished faster." : "Ranked by each student's best attempt (completed within the time limit)."}</p>
+      ${rows ? `<div class="tablewrap"><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
+             : `<p class="muted center">${daily ? "Nobody has finished today's test yet. Be the first!" : 'No scores yet. Be the first!'}</p>`}
     </div>`;
 }
 
@@ -540,6 +573,7 @@ async function renderLeaderboard(unit = null) {
 const actions = {
   home: () => renderDashboard(),
   lb: () => renderLeaderboard(null),
+  dailylb: () => renderLeaderboard('daily'),
   logout: async () => { stopTimer(); test = null; await sb.auth.signOut(); },
   mode: el => { authMode = el.dataset.m; renderAuth(); },
   start: el => startTest(el.dataset.kind || 'unit', el.dataset.unit ? Number(el.dataset.unit) : null),
@@ -599,7 +633,10 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('change', e => {
   if (e.target.name === 'opt' && test) choose(e.target.value);
-  if (e.target.id === 'lbunit') renderLeaderboard(e.target.value === '' ? null : Number(e.target.value));
+  if (e.target.id === 'lbunit') {
+    const v = e.target.value;
+    renderLeaderboard(v === '' ? null : v === 'daily' ? 'daily' : Number(v));
+  }
 });
 document.addEventListener('submit', e => {
   const id = e.target.id;

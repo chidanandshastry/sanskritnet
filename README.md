@@ -39,3 +39,6 @@ on conflict do nothing;
 
 ## Practice and quality features
 `supabase/features.sql` (run after `schema.sql` and `admin.sql`) adds: practice from your mistakes, saved questions, question reports, per-question accuracy for admins, and separate leaderboards that count only real full mocks and unit tests. Password reset emails need the Supabase Site URL set to your live address.
+
+## Test of the Day
+Run `supabase/daily.sql` (after the other SQL files). It adds one 20-question test per day (India time), identical for every student, one attempt each, with its own daily leaderboard ranked by score then speed.

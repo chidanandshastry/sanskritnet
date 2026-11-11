@@ -207,3 +207,8 @@ dialog.dlg::backdrop{background:rgba(11,20,36,.6)}
 
 /* admin flags */
 .flag{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:4px;font-size:.82rem;font-weight:600;color:var(--bad);background:var(--bad-soft)}
+
+/* test of the day */
+.hero.daily{border-top-color:var(--brand)}
+.hero-actions{display:flex;gap:8px;flex-wrap:wrap}
+@media (max-width:720px){.hero-actions{width:100%}.hero-actions .btn{flex:1}}
