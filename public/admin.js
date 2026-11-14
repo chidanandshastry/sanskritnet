@@ -209,13 +209,32 @@ function parseCSV(text, delim) {
 
 let importName = '';
 
-function showImport() {
+async function showImport() {
   importRows = null;
+  const [st, b] = await Promise.all([sb.rpc('admin_stats'), sb.rpc('admin_list_batches')]);
+  if (!st.error) units = st.data.units;
+  const ups = (!b.error && b.data) ? b.data.filter(x => x.id) : [];
   app.innerHTML = `
     <h1>Import questions</h1>
     <div class="card">
+      <h2 style="margin-top:0">Download for correction</h2>
+      <p class="muted small">Download questions as a CSV, fix them in Excel, then upload the file again below. Keep the <code>id</code> column:
+        rows that have an id <b>update</b> that question in place, and rows without an id are added as new.</p>
+      <div class="toolbar">
+        <select id="x-unit" aria-label="Unit"><option value="">All units</option>
+          ${units.map(u => `<option value="${u.id}">${u.id}. ${esc(u.title)} (${u.n})</option>`).join('')}</select>
+        <select id="x-batch" aria-label="Upload"><option value="">All uploads</option>
+          ${ups.map(x => `<option value="${x.id}">${esc(x.label)} (${x.n})</option>`).join('')}</select>
+        <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="x-rep"> Only reported questions</label>
+        <button class="btn" data-act="export">Download CSV</button>
+      </div>
+      <div id="exportbox" class="small muted"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2 style="margin-top:0">Upload questions</h2>
       <p>Upload a <b>CSV file (UTF-8)</b> with these column headings in the first row:</p>
-      <p><code>unit, question, option_a, option_b, option_c, option_d, correct, explanation</code></p>
+      <p><code>unit, question, option_a, option_b, option_c, option_d, correct, explanation</code>
+        <span class="muted small">(and <code>id</code>, only in files you downloaded above)</span></p>
       <p class="muted small">unit is the number 1 to 10. correct is A, B, C or D. explanation is optional.
         In Excel use <i>Save As → CSV UTF-8</i> so Sanskrit text is kept correctly.</p>
       <div class="actions" style="margin-top:0">
@@ -224,6 +243,35 @@ function showImport() {
       </div>
       <div id="importbox"></div>
     </div>`;
+}
+
+const csvCell = v => { v = v == null ? '' : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+async function doExport(btn) {
+  const box = document.getElementById('exportbox');
+  const unit = document.getElementById('x-unit').value, batch = document.getElementById('x-batch').value;
+  const rep = document.getElementById('x-rep').checked;
+  btn.disabled = true;
+  const cols = ['id', 'unit', 'question', 'option_a', 'option_b', 'option_c', 'option_d', 'correct', 'explanation'];
+  const lines = [cols.join(',')]; let total = null, got = 0;
+  try {
+    for (;;) {
+      box.textContent = total == null ? 'Preparing…' : `Preparing… ${got} / ${total}`;
+      const { data, error } = await sb.rpc('admin_export_questions', {
+        p_unit: unit ? Number(unit) : null, p_batch: batch || null, p_only_reported: rep, p_offset: got, p_limit: 1000 });
+      if (error) throw error;
+      total = data.total;
+      data.rows.forEach(r => lines.push(cols.map(c => csvCell(r[c])).join(',')));
+      got += data.rows.length;
+      if (!data.rows.length || got >= total) break;
+    }
+    if (!got) { box.textContent = 'No questions match those choices.'; return; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'sanskrit_questions' + (unit ? '_unit' + unit : '') + (rep ? '_reported' : '') + '.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    box.textContent = `Downloaded ${got} question${got === 1 ? '' : 's'}. Open it in Excel, fix the rows, save as CSV UTF-8, then upload it below.`;
+  } catch (e) { box.textContent = errMsg(e); }
+  finally { btn.disabled = false; }
 }
 
 function handleFile(file) {
@@ -244,7 +292,8 @@ function handleFile(file) {
       const o = {}; header.forEach((h, i) => { o[h] = (r[i] ?? '').trim(); }); return o;
     });
     box.innerHTML = `
-      <p style="margin-top:16px"><b>${importRows.length}</b> question${importRows.length === 1 ? '' : 's'} found. Preview of the first 3:</p>
+      <p style="margin-top:16px"><b>${importRows.length}</b> row${importRows.length === 1 ? '' : 's'} found:
+        <b>${importRows.filter(r => !r.id).length}</b> new, <b>${importRows.filter(r => r.id).length}</b> corrections to existing questions. Preview of the first 3:</p>
       <div class="tablewrap"><table><thead><tr><th>Unit</th><th>Question</th><th>Ans</th></tr></thead><tbody>
         ${importRows.slice(0, 3).map(r => `<tr><td>${esc(r.unit)}</td><td class="sa qcell">${esc(r.question)}</td><td>${esc(r.correct)}</td></tr>`).join('')}
       </tbody></table></div>
@@ -258,21 +307,25 @@ async function doImport(btn) {
   const box = document.getElementById('importbox');
   btn.disabled = true;
   const stamp = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  const { data: batchId, error: be } = await sb.rpc('admin_create_batch', { p_label: (importName || 'Upload') + ' (' + stamp + ')' });
-  if (be) { box.innerHTML = `<div class="err">${esc(errMsg(be))}</div>`; return; }
-  let inserted = 0; const errors = [];
+  let batchId = null;   // corrections-only files add nothing, so they get no upload entry
+  if (importRows.some(r => !r.id)) {
+    const { data, error: be } = await sb.rpc('admin_create_batch', { p_label: (importName || 'Upload') + ' (' + stamp + ')' });
+    if (be) { box.innerHTML = `<div class="err">${esc(errMsg(be))}</div>`; return; }
+    batchId = data;
+  }
+  let inserted = 0, updated = 0; const errors = [];
   const CHUNK = 200;
   for (let i = 0; i < importRows.length; i += CHUNK) {
     box.querySelector('.actions').innerHTML = `<span class="muted">Importing… ${Math.min(i + CHUNK, importRows.length)} / ${importRows.length}</span>`;
     const part = importRows.slice(i, i + CHUNK);
     const { data, error } = await sb.rpc('admin_import_questions', { p_rows: part, p_batch: batchId });
     if (error) { errors.push({ row: i + 1, error: errMsg(error) }); break; }
-    inserted += data.inserted;
+    inserted += data.inserted; updated += data.updated || 0;
     data.errors.forEach(e => errors.push({ row: i + e.row, error: e.error }));
   }
   importRows = null;
   box.innerHTML = `
-    <p style="margin-top:16px"><b style="color:var(--ok)">${inserted} imported.</b>
+    <p style="margin-top:16px"><b style="color:var(--ok)">${inserted} added${updated ? `, ${updated} updated` : ''}.</b>
       ${errors.length ? `<b style="color:var(--bad)"> ${errors.length} skipped.</b>` : ''}</p>
     ${errors.length ? `<div class="tablewrap"><table><thead><tr><th>Data row</th><th>Problem</th></tr></thead><tbody>
       ${errors.slice(0, 50).map(e => `<tr><td>${e.row}</td><td>${esc(e.error)}</td></tr>`).join('')}</tbody></table></div>
@@ -425,6 +478,7 @@ const actions = {
   qprev: () => { if (qs.page > 0) { qs.page--; showQuestions(); } },
   qnext: () => { qs.page++; showQuestions(); },
   template: downloadTemplate,
+  export: el => doExport(el),
   doimport: el => doImport(el),
   saveunit: el => saveUnit(el)
 };

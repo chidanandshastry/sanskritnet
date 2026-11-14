@@ -48,3 +48,6 @@ Run `supabase/batches.sql` (after `admin.sql`). Each CSV import is then saved as
 
 ## No repeated questions
 Run `supabase/norepeat.sql` (after `daily.sql`). A student never gets the same question twice in full-mock or unit tests until they restart that unit (or all units) from the dashboard. Restarting keeps past scores and the leaderboard. Practice tests and the Test of the day do not use up questions.
+
+## Download, correct and re-upload (admin)
+Run `supabase/export.sql` (after `batches.sql`). In the admin **Import** tab, download questions (all, one unit, one upload, or only reported ones) as a CSV that includes an `id` column. After correcting it, upload it again: rows with an id update that question in place; rows without an id are added as new.
