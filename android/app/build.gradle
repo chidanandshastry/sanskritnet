@@ -1,0 +1,27 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.sanskritnet.mocktest'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.sanskritnet.mocktest'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    signingConfigs {
+        // Fixed key so every new build installs over the old one (no uninstall needed). Sideload use only.
+        release {
+            storeFile file('sanskritnet.keystore')
+            storePassword 'sanskritnet'
+            keyAlias 'sanskritnet'
+            keyPassword 'sanskritnet'
+        }
+    }
+    buildTypes {
+        release { signingConfig signingConfigs.release; minifyEnabled false }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies { implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0' }

@@ -51,3 +51,6 @@ Run `supabase/norepeat.sql` (after `daily.sql`). A student never gets the same q
 
 ## Download, correct and re-upload (admin)
 Run `supabase/export.sql` (after `batches.sql`). In the admin **Import** tab, download questions (all, one unit, one upload, or only reported ones) as a CSV that includes an `id` column. After correcting it, upload it again: rows with an id update that question in place; rows without an id are added as new.
+
+## Android app
+`android/` is a small app that opens the live website in a full-screen window, so every site update appears in the app automatically. GitHub builds it (Actions tab, "Build Android app"); the file is on the repo's Releases page as `SanskritNET.apk`. It is signed with a fixed key, so a newer APK installs over the old one. For Google Play you would create your own private key instead of the one in this repo.
