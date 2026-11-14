@@ -235,3 +235,7 @@ dialog.dlg::backdrop{background:rgba(11,20,36,.6)}
 /* only the hero buttons are solid; list buttons stay quiet so the eye finds the daily test first */
 .urow .btn,.ledger .btn{background:transparent;color:var(--brand);border-color:var(--line)}
 .urow .btn:hover:not(:disabled),.ledger .btn:hover:not(:disabled){border-color:var(--brand);background:var(--brand-soft)}
+
+/* destructive actions */
+.btn.danger{color:var(--bad);border-color:var(--bad);background:transparent}
+.btn.danger:hover:not(:disabled){background:var(--bad);color:#fff}

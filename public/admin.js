@@ -32,7 +32,7 @@ const errMsg = e => (e && e.message) || String(e);
 /* ---------- top bar ---------- */
 function renderTopbar() {
   const tabs = [['overview', 'Overview'], ['questions', 'Questions'], ['reports', 'Reports' + (openReports ? ' (' + openReports + ')' : '')],
-    ['import', 'Import'], ['units', 'Units'], ['students', 'Students']];
+    ['import', 'Import'], ['uploads', 'Uploads'], ['units', 'Units'], ['students', 'Students']];
   topbar.innerHTML = `
     <div class="brand"><span class="dot sa">सं</span>Admin</div>
     ${tabs.map(([k, l]) => `<button class="btn sm ${tab === k ? 'primary' : 'ghost'}" data-act="tab" data-t="${k}">${l}</button>`).join('')}
@@ -207,6 +207,8 @@ function parseCSV(text, delim) {
   return rows;
 }
 
+let importName = '';
+
 function showImport() {
   importRows = null;
   app.innerHTML = `
@@ -225,6 +227,7 @@ function showImport() {
 }
 
 function handleFile(file) {
+  importName = file.name;
   const box = document.getElementById('importbox');
   const reader = new FileReader();
   reader.onload = () => {
@@ -254,12 +257,15 @@ async function doImport(btn) {
   if (!importRows) return;
   const box = document.getElementById('importbox');
   btn.disabled = true;
+  const stamp = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const { data: batchId, error: be } = await sb.rpc('admin_create_batch', { p_label: (importName || 'Upload') + ' (' + stamp + ')' });
+  if (be) { box.innerHTML = `<div class="err">${esc(errMsg(be))}</div>`; return; }
   let inserted = 0; const errors = [];
   const CHUNK = 200;
   for (let i = 0; i < importRows.length; i += CHUNK) {
     box.querySelector('.actions').innerHTML = `<span class="muted">Importing… ${Math.min(i + CHUNK, importRows.length)} / ${importRows.length}</span>`;
     const part = importRows.slice(i, i + CHUNK);
-    const { data, error } = await sb.rpc('admin_import_questions', { p_rows: part });
+    const { data, error } = await sb.rpc('admin_import_questions', { p_rows: part, p_batch: batchId });
     if (error) { errors.push({ row: i + 1, error: errMsg(error) }); break; }
     inserted += data.inserted;
     data.errors.forEach(e => errors.push({ row: i + e.row, error: e.error }));
@@ -282,6 +288,33 @@ function downloadTemplate() {
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = 'questions_template.csv'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------- uploads: delete a whole upload or a whole unit ---------- */
+let batches = [];
+async function showUploads() {
+  loading();
+  const [b, st] = await Promise.all([sb.rpc('admin_list_batches'), sb.rpc('admin_stats')]);
+  if (b.error) return message('Error', errMsg(b.error), false);
+  if (!st.error) units = st.data.units;
+  batches = b.data || [];
+  const split = u => (u || []).map(x => `${esc(unitTitle(x.unit))}: ${x.n}`).join(' &middot; ') || '—';
+  app.innerHTML = `
+    <h1>Uploads</h1>
+    <p class="muted">Every CSV you import is kept as one upload. Delete an upload to remove all the questions that came with it, for example when a file had the wrong unit numbers.</p>
+    <div class="card"><div class="tablewrap"><table>
+      <thead><tr><th>Upload</th><th>Questions</th><th>By unit</th><th></th></tr></thead><tbody>
+      ${batches.length ? batches.map((x, i) => `<tr>
+        <td>${esc(x.label)}<div class="small muted">${x.created_at ? fmtDate(x.created_at) : 'Before uploads were tracked'}</div></td>
+        <td>${x.n}</td><td class="small">${split(x.units)}</td>
+        <td>${x.id ? `<button class="btn sm danger" data-act="delbatch" data-i="${i}">Delete upload</button>` : '<span class="muted small">Delete by unit below</span>'}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="muted">No questions yet. Import a CSV file first.</td></tr>'}
+      </tbody></table></div></div>
+    <h2 class="section-title">Delete every question in a unit</h2>
+    <div class="card"><div class="toolbar">
+      <select id="delunit" aria-label="Unit">${(units || []).map(u => `<option value="${u.id}">${u.id}. ${esc(u.title)} (${u.n})</option>`).join('')}</select>
+      <button class="btn danger" data-act="delunitq">Delete all questions in this unit</button></div>
+      <p class="muted small">This removes every question in the unit, whichever upload it came from.</p></div>`;
 }
 
 /* ---------- units ---------- */
@@ -342,6 +375,7 @@ function go(t) {
   else if (t === 'questions') { qs.page = 0; showQuestions(); }
   else if (t === 'reports') showReports();
   else if (t === 'import') showImport();
+  else if (t === 'uploads') showUploads();
   else if (t === 'units') showUnits();
   else if (t === 'students') showStudents();
 }
@@ -358,6 +392,22 @@ const actions = {
     toast('Question deleted'); showQuestions();
   },
   closedlg: () => dlg.close(),
+  delbatch: async el => {
+    const x = batches[Number(el.dataset.i)]; if (!x || !x.id) return;
+    if (!confirm(`Delete the upload "${x.label}" and its ${x.n} question${x.n === 1 ? '' : 's'}?\n\nThis cannot be undone. Past student attempts will no longer show these questions in their review.`)) return;
+    const { data, error } = await sb.rpc('admin_delete_batch', { p_batch: x.id });
+    if (error) return toast(errMsg(error));
+    toast(data + ' questions deleted'); showUploads();
+  },
+  delunitq: async () => {
+    const id = Number(document.getElementById('delunit').value);
+    const u = (units || []).find(v => v.id === id); if (!u) return;
+    if (!confirm(`Delete ALL ${u.n} questions in "${u.title}"?\n\nThis cannot be undone. Past student attempts will no longer show these questions in their review.`)) return;
+    if (!confirm('Last check: really delete every question in this unit?')) return;
+    const { data, error } = await sb.rpc('admin_delete_unit_questions', { p_unit: id });
+    if (error) return toast(errMsg(error));
+    toast(data + ' questions deleted'); showUploads();
+  },
   editreported: async el => {
     const { data, error } = await sb.rpc('admin_list_questions', { p_id: Number(el.dataset.q), p_limit: 1 });
     if (error || !data.rows.length) return toast(error ? errMsg(error) : 'That question no longer exists');

@@ -42,3 +42,6 @@ on conflict do nothing;
 
 ## Test of the Day
 Run `supabase/daily.sql` (after the other SQL files). It adds one 20-question test per day (India time), identical for every student, one attempt each, with its own daily leaderboard ranked by score then speed.
+
+## Upload batches (admin)
+Run `supabase/batches.sql` (after `admin.sql`). Each CSV import is then saved as an upload; the admin **Uploads** tab lists them and can delete a whole upload, or every question in one unit.
