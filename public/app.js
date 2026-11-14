@@ -252,13 +252,14 @@ function progressHTML(st) {
 async function renderDashboard() {
   stopTimer();
   loading();
-  const [u, h, s, pcr, dly] = await Promise.all([
+  const [u, h, s, pcr, dly, rem] = await Promise.all([
     sb.rpc('unit_counts'),
     sb.from('attempts').select('id,unit,kind,total,correct,score,late,created_at')
       .order('created_at', { ascending: false }).limit(10),
     sb.rpc('my_stats'),
     sb.rpc('practice_counts'),
-    sb.rpc('daily_status')
+    sb.rpc('daily_status'),
+    sb.rpc('unit_remaining')
   ]);
   if (u.error) return showError(u.error.message);
   units = u.data || [];
@@ -279,19 +280,26 @@ async function renderDashboard() {
   const totalQ = units.reduce((a, x) => a + Number(x.n), 0);
   const saved = loadSaved();
   const perTest = cfg.QUESTIONS_PER_TEST || 100;
+  const left = {};   // new (unseen) questions per unit; if this call fails we simply show no counts
+  if (!rem.error && rem.data) rem.data.forEach(x => { left[x.unit] = Number(x.remaining); });
+  const known = !rem.error && !!rem.data;
+  const totalLeft = Object.values(left).reduce((a, b) => a + b, 0);
   const readyUnits = units.filter(x => Number(x.n) >= 10).length;
-  const fullReady = readyUnits >= (cfg.MIN_UNITS_FOR_FULL || 5);   // a "full" mock from one unit would mislead students
+  const fullReady = readyUnits >= (cfg.MIN_UNITS_FOR_FULL || 5);
+  const fullNew = !known || totalLeft >= perTest;   // a full mock never repeats a question, so it needs enough new ones   // a "full" mock from one unit would mislead students
 
   const unitCards = units.map(x => `
     <div class="urow">
       <span class="unum" aria-hidden="true">${toDev(x.id)}</span>
       <div class="uinfo">
         <h3>${esc(x.title)}</h3>
-        <div class="small muted">${x.n} question${Number(x.n) === 1 ? '' : 's'}</div>
+        <div class="small muted">${x.n} question${Number(x.n) === 1 ? '' : 's'}${known && Number(x.n) > 0 ? ` &middot; <b>${left[x.id] ?? 0}</b> new` : ''}</div>
       </div>
       <div class="uacc">${unitAccuracy(byUnit[x.id])}</div>
-      <button class="btn" data-act="start" data-kind="unit" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
-        ${Number(x.n) === 0 ? 'No questions' : 'Start test'}</button>
+      ${known && Number(x.n) > 0 && (left[x.id] ?? 0) === 0
+        ? `<button class="btn" data-act="restartunit" data-unit="${x.id}">Restart unit</button>`
+        : `<button class="btn" data-act="start" data-kind="unit" data-unit="${x.id}" ${Number(x.n) === 0 ? 'disabled' : ''}>
+        ${Number(x.n) === 0 ? 'No questions' : 'Start test'}</button>`}
     </div>`).join('');
 
   const practiceRows = [
@@ -347,9 +355,12 @@ async function renderDashboard() {
         <h1>Full Mock Test</h1>
         <p class="muted">${perTest} questions drawn from all ten units, two marks each, no negative marking.
           You get ${Math.round(perTest * (cfg.MINUTES_PER_QUESTION || 1.2))} minutes.</p>
+        ${fullReady && !fullNew ? `<p class="small muted"><b>Not enough new questions.</b> Only ${totalLeft} new question${totalLeft === 1 ? ' is' : 's are'} left, and a full mock needs ${perTest}. Restart your units to get new full mocks again.</p>` : ''}
         ${fullReady ? '' : `<p class="small muted"><b>Opening soon.</b> Questions for the other units are still being added, so the full mock unlocks once more units are ready. Unit tests and daily tests are open now.</p>`}
       </div>
-      <button class="btn primary" data-act="start" data-kind="full" ${fullReady ? '' : 'disabled'}>${fullReady ? 'Start full mock' : 'Coming soon'}</button>
+      ${fullReady && !fullNew
+        ? '<button class="btn primary" data-act="restartunit" data-unit="all">Restart all units</button>'
+        : `<button class="btn primary" data-act="start" data-kind="full" ${fullReady ? '' : 'disabled'}>${fullReady ? 'Start full mock' : 'Coming soon'}</button>`}
     </div>
     ${progressHTML(st)}
     <h2 class="section-title">Practice</h2>
@@ -590,6 +601,14 @@ const actions = {
   home: () => renderDashboard(),
   lb: () => renderLeaderboard(null),
   dailylb: () => renderLeaderboard('daily'),
+  restartunit: async el => {
+    const all = el.dataset.unit === 'all';
+    const name = all ? 'every unit' : unitTitle(Number(el.dataset.unit));
+    if (!confirm(`Restart ${name}?\n\nYou will see its questions again, starting fresh. Your past scores and leaderboard rank stay as they are.`)) return;
+    const { error } = await sb.rpc('restart_unit', { p_unit: all ? null : Number(el.dataset.unit) });
+    if (error) return toast(error.message);
+    toast('Restarted. All questions are new again.'); renderDashboard();
+  },
   share: async () => {
     const r = lastResult; if (!r) return;
     const url = location.origin + location.pathname;

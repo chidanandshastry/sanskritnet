@@ -45,3 +45,6 @@ Run `supabase/daily.sql` (after the other SQL files). It adds one 20-question te
 
 ## Upload batches (admin)
 Run `supabase/batches.sql` (after `admin.sql`). Each CSV import is then saved as an upload; the admin **Uploads** tab lists them and can delete a whole upload, or every question in one unit.
+
+## No repeated questions
+Run `supabase/norepeat.sql` (after `daily.sql`). A student never gets the same question twice in full-mock or unit tests until they restart that unit (or all units) from the dashboard. Restarting keeps past scores and the leaderboard. Practice tests and the Test of the day do not use up questions.
