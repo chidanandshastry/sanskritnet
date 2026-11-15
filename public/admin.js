@@ -30,12 +30,23 @@ function toast(msg) {
 const errMsg = e => (e && e.message) || String(e);
 
 /* ---------- top bar ---------- */
+// On phones wide tables turn into cards: each cell gets its column heading from the table head.
+function stackTables() {
+  app.querySelectorAll('table').forEach(t => {
+    const heads = [...t.querySelectorAll('thead th')].map(h => h.textContent.trim());
+    if (heads.length < 4) return;   // short tables read fine as they are
+    t.classList.add('stack');
+    t.querySelectorAll('tbody tr').forEach(tr => [...tr.children].forEach((td, i) => { if (heads[i] && !td.dataset.l) td.dataset.l = heads[i]; }));
+  });
+}
+new MutationObserver(stackTables).observe(app, { childList: true, subtree: true });
+
 function renderTopbar() {
   const tabs = [['overview', 'Overview'], ['questions', 'Questions'], ['reports', 'Reports' + (openReports ? ' (' + openReports + ')' : '')],
     ['import', 'Import'], ['uploads', 'Uploads'], ['units', 'Units'], ['students', 'Students']];
   topbar.innerHTML = `
-    <div class="brand"><span class="dot sa">सं</span>Admin</div>
-    ${tabs.map(([k, l]) => `<button class="btn sm ${tab === k ? 'primary' : 'ghost'}" data-act="tab" data-t="${k}">${l}</button>`).join('')}
+    <div class="brand"><span class="dot sa">सं</span><span class="bt">Admin</span></div>
+    <nav class="admintabs">${tabs.map(([k, l]) => `<button class="btn sm ${tab === k ? 'primary' : 'ghost'}" data-act="tab" data-t="${k}">${l}</button>`).join('')}</nav>
     <span style="margin-left:auto"></span>
     <a class="btn sm" href="./">Student site</a>
     <button class="btn sm" data-act="logout">Log out</button>`;

@@ -370,7 +370,7 @@ async function renderDashboard() {
     <div class="ledger">${unitCards}</div>
     <h2 class="section-title">Your recent attempts</h2>
     <div class="card">${hist
-      ? `<div class="tablewrap"><table><thead><tr><th>Test</th><th>Score</th><th>Correct</th><th>When</th><th></th></tr></thead><tbody>${hist}</tbody></table></div>`
+      ? `<div class="tablewrap"><table class="hist"><thead><tr><th>Test</th><th>Score</th><th>Correct</th><th>When</th><th></th></tr></thead><tbody>${hist}</tbody></table></div>`
       : '<p class="muted" style="margin:0">No attempts yet. Start a test above!</p>'}</div>`;
 }
 
