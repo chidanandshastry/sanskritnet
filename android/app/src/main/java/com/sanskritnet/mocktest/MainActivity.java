@@ -2,6 +2,9 @@ package com.sanskritnet.mocktest;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.webkit.JsResult;
+import android.webkit.WebChromeClient;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -36,6 +39,21 @@ public class MainActivity extends Activity {
         s.setSupportZoom(false);
         CookieManager.getInstance().setAcceptCookie(true);
 
+        // A bare WebView ignores confirm() and alert(), so the site's "Submit test?" box would do nothing.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onJsConfirm(WebView v, String url, String msg, JsResult r) {
+                new AlertDialog.Builder(MainActivity.this).setMessage(msg)
+                    .setPositiveButton("OK", (d, w) -> r.confirm())
+                    .setNegativeButton("Cancel", (d, w) -> r.cancel())
+                    .setOnCancelListener(d -> r.cancel()).show();
+                return true;
+            }
+            @Override public boolean onJsAlert(WebView v, String url, String msg, JsResult r) {
+                new AlertDialog.Builder(MainActivity.this).setMessage(msg)
+                    .setPositiveButton("OK", (d, w) -> r.confirm()).setOnCancelListener(d -> r.confirm()).show();
+                return true;
+            }
+        });
         refresh.setOnRefreshListener(() -> { failed = false; web.loadUrl(SITE); });
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
@@ -57,7 +75,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); web.saveState(out); }
 
+    // Back: the site goes from a sub-screen to the dashboard first; only from the dashboard does the app close.
     @Override public void onBackPressed() {
-        if (web.canGoBack() && !failed) web.goBack(); else super.onBackPressed();
+        if (failed) { super.onBackPressed(); return; }
+        web.evaluateJavascript("(function(){return !!(window.__appBack && window.__appBack());})()", handled -> {
+            if ("true".equals(handled)) return;
+            if (web.canGoBack()) web.goBack(); else finish();
+        });
     }
 }

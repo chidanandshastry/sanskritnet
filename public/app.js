@@ -54,6 +54,7 @@ function clearSaved() { try { localStorage.removeItem(saveKey()); } catch (e) {}
 function loadSaved() {
   try { return JSON.parse(localStorage.getItem(saveKey()) || 'null'); } catch (e) { return null; }
 }
+let view = 'auth';   // which screen is showing; the Android app's back button uses this
 function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
 
 function showError(msg) {
@@ -88,7 +89,7 @@ function renderTopbar() {
 
 /* ---------- auth ---------- */
 function renderAuth() {
-  stopTimer();
+  stopTimer(); view = 'auth';
   const su = authMode === 'signup';
   app.innerHTML = `
   <div class="auth-wrap">
@@ -146,7 +147,7 @@ async function doForgot(form) {
 }
 
 function renderRecovery() {
-  stopTimer();
+  stopTimer(); view = 'auth';
   app.innerHTML = `
   <div class="card auth"><h1>Choose a new password</h1>
     <form id="recform">
@@ -250,7 +251,7 @@ function progressHTML(st) {
 
 /* ---------- dashboard ---------- */
 async function renderDashboard() {
-  stopTimer();
+  stopTimer(); view = 'home';
   loading();
   const [u, h, s, pcr, dly, rem] = await Promise.all([
     sb.rpc('unit_counts'),
@@ -386,6 +387,7 @@ async function startTest(kind, unit) {
 }
 
 function renderTest() {
+  view = 'test';
   const t = test, q = t.qs[t.idx];
   t.reveal = t.reveal || {};
   const rv = t.reveal[q.id];                       // set once the server has checked this answer
@@ -492,7 +494,7 @@ async function submitTest(auto = false) {
 
 /* ---------- result & review ---------- */
 function renderResult(r) {
-  stopTimer();
+  stopTimer(); view = 'result';
   lastResult = r; reviewFilter = 'all';
   const pct = r.max_score ? (100 * r.score / r.max_score).toFixed(1) : '0.0';
   app.innerHTML = `
@@ -594,7 +596,7 @@ async function openReview(id) {
 
 /* ---------- leaderboard ---------- */
 async function renderLeaderboard(unit = null) {   // null = full mock, number = unit, 'daily' = test of the day
-  stopTimer();
+  stopTimer(); view = 'lb';
   loading('Loading leaderboard…');
   if (!units.length) { const u = await sb.rpc('unit_counts'); units = u.data || []; }
   const daily = unit === 'daily';
@@ -621,6 +623,14 @@ async function renderLeaderboard(unit = null) {   // null = full mock, number = 
              : `<p class="muted center">${daily ? "Nobody has finished today's test yet. Be the first!" : 'No scores yet. Be the first!'}</p>`}
     </div>`;
 }
+
+/* Back button inside the Android app: returns true when the page handled it, false to let the app close. */
+window.__appBack = () => {
+  if (view === 'home' || view === 'auth') return false;
+  if (view === 'test' && !confirm('Leave the test for now?\n\nYour answers are saved. You can resume it from the dashboard.')) return true;
+  renderDashboard();
+  return true;
+};
 
 /* ---------- actions & events ---------- */
 const actions = {
