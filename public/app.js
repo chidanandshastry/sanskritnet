@@ -65,14 +65,14 @@ function showError(msg) {
 /* ---------- top bar ---------- */
 function renderTopbar() {
   if (!session) {
-    topbar.innerHTML = `<div class="brand" data-act="home"><span class="dot sa">सं</span>UGC NET Sanskrit</div>`;
+    topbar.innerHTML = `<div class="brand" data-act="home" role="button" aria-label="Home"><span class="dot sa">सं</span><span class="bt">UGC NET Sanskrit</span></div>`;
     return;
   }
   const meta = session.user.user_metadata || {};
   const name = meta.name || (session.user.email || '').split('@')[0];
   topbar.innerHTML = `
-    <div class="brand" data-act="home"><span class="dot sa">सं</span>UGC NET Sanskrit</div>
-    <button class="btn ghost sm" data-act="home">Dashboard</button>
+    <div class="brand" data-act="home" role="button" aria-label="Home"><span class="dot sa">सं</span><span class="bt">UGC NET Sanskrit</span></div>
+    <button class="btn ghost sm navhome" data-act="home">Dashboard</button>
     <button class="btn ghost sm" data-act="lb">Leaderboard</button>
     <span class="who">${esc(name)}</span>
     <button class="btn sm" data-act="logout">Log out</button>`;

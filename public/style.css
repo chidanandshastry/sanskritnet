@@ -250,3 +250,37 @@ dialog.dlg::backdrop{background:rgba(11,20,36,.6)}
 .fb.r>b{color:var(--ok)} .fb.w>b{color:var(--bad)}
 .pal .ok{background:var(--ok);border-color:var(--ok);color:#fff}
 .pal .bad{background:var(--bad);border-color:var(--bad);color:#fff}
+
+/* ---------- phones: one-row bar, full-width actions, thumb-reach test controls ---------- */
+@media (max-width:720px){
+  .wrap{padding-left:14px;padding-right:14px}
+  .btn{min-height:44px}
+  .topbar{flex-wrap:nowrap;padding:8px 12px;gap:4px}
+  .topbar .btn.sm{min-height:38px;padding:0 10px}
+  .topbar .bt,.topbar .navhome,.who{display:none}
+
+  /* home */
+  .hero,.hero.daily{gap:14px}
+  .hero .btn,.hero-actions .btn{width:100%;flex:1 1 100%}
+  .hero.daily .hero-actions{flex-direction:column}
+  .urow{grid-template-columns:34px minmax(0,1fr) auto;gap:2px 12px;padding:12px 14px;align-items:center}
+  .urow .btn{grid-column:3;grid-row:1 / 3;width:auto;padding:0 14px}
+  .urow .uacc{grid-column:2}
+  .urow.two{grid-template-columns:minmax(0,1fr) auto}
+  .urow.two .btn{grid-column:2;grid-row:1}
+
+  /* test: compact header, answer options and a fixed Previous / Mark / Next bar */
+  .test{padding-bottom:84px}
+  .test-head{flex-wrap:nowrap;gap:8px}
+  .test-head .badge.soft{display:none}
+  .test-head .sizer{margin-left:auto}
+  .opt{padding:14px}
+  .test .actions{position:fixed;left:0;right:0;bottom:0;z-index:9;display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:8px;
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--line);margin:0}
+  .test .actions .spacer{display:none}
+  .test .actions .btn{width:100%;padding:0 6px;font-size:.92rem}
+  .hint{display:none}
+  .palette .btn.block{min-height:48px}
+  .pal{grid-template-columns:repeat(8,1fr)}
+}
+@media (max-width:720px){ .urow .uacc,.urow .small{font-size:.8rem} }
