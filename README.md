@@ -54,3 +54,6 @@ Run `supabase/export.sql` (after `batches.sql`). In the admin **Import** tab, do
 
 ## Android app
 `android/` is a small app that opens the live website in a full-screen window, so every site update appears in the app automatically. GitHub builds it (Actions tab, "Build Android app"); the file is on the repo's Releases page as `SanskritNET.apk`. It is signed with a fixed key, so a newer APK installs over the old one. For Google Play you would create your own private key instead of the one in this repo.
+
+## Instant feedback
+Run `supabase/instant.sql` (after the other SQL files). When a student picks an answer, the server locks that first choice and returns the right answer and explanation straight away. Marking at submit uses the locked choices, so seeing an answer can't be used to change it.

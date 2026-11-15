@@ -379,7 +379,7 @@ async function startTest(kind, unit) {
   const { data, error } = await sb.rpc('start_test', { p_unit: unit, p_count: cfg.QUESTIONS_PER_TEST || 100, p_kind: kind });
   if (error) { toast(error.message); return renderDashboard(); }
   const dur = Math.round(data.questions.length * (cfg.MINUTES_PER_QUESTION || 1.2) * 60000);
-  test = { sessionId: data.session_id, kind: data.kind, unit: data.unit, qs: data.questions, answers: {}, marked: {}, idx: 0,
+  test = { sessionId: data.session_id, kind: data.kind, unit: data.unit, qs: data.questions, answers: {}, reveal: {}, marked: {}, idx: 0,
     endAt: Date.now() + dur - (Number(data.elapsed_sec) || 0) * 1000 };   // reopened daily test keeps its original clock
   persist();
   renderTest();
@@ -387,14 +387,22 @@ async function startTest(kind, unit) {
 
 function renderTest() {
   const t = test, q = t.qs[t.idx];
+  t.reveal = t.reveal || {};
+  const rv = t.reveal[q.id];                       // set once the server has checked this answer
+  if (t.answers[q.id] && !rv) ensureReveal(q.id);   // a resumed test: fetch the result for an answer given earlier
   const keys = ['a', 'b', 'c', 'd'];
   const opts = keys.map(k => {
     const K = k.toUpperCase(), on = t.answers[q.id] === K;
-    return `<label class="opt ${on ? 'sel' : ''}"><input type="radio" name="opt" value="${K}" ${on ? 'checked' : ''}>
+    const state = rv ? (K === rv.right ? 'right' : (on ? 'wrong' : '')) : (on ? 'sel' : '');
+    return `<label class="opt ${state}"><input type="radio" name="opt" value="${K}" ${on ? 'checked' : ''} ${rv ? 'disabled' : ''}>
       <span class="ol">${K}</span><span class="ot sa">${esc(q[k])}</span></label>`;
   }).join('');
+  const feedback = rv ? `<div class="fb ${rv.choice === rv.right ? 'r' : 'w'}" role="status">
+      <b>${rv.choice === rv.right ? 'Correct.' : `Not quite. The right answer is ${rv.right}.`}</b>
+      ${rv.explanation ? `<div class="expl sa">${esc(rv.explanation)}</div>` : ''}</div>` : '';
   const pal = t.qs.map((x, i) => {
-    const cls = [t.marked[x.id] ? 'mark' : (t.answers[x.id] ? 'ans' : ''), i === t.idx ? 'cur' : ''].join(' ').trim();
+    const r = t.reveal[x.id];
+    const cls = [t.marked[x.id] ? 'mark' : (r ? (r.choice === r.right ? 'ok' : 'bad') : (t.answers[x.id] ? 'ans' : '')), i === t.idx ? 'cur' : ''].join(' ').trim();
     return `<button class="${cls}" data-act="goto" data-i="${i}" aria-label="Question ${i + 1}">${i + 1}</button>`;
   }).join('');
   const answered = Object.keys(t.answers).length;
@@ -411,19 +419,19 @@ function renderTest() {
       </div>
       <div class="qtext sa">${esc(q.question)}</div>
       <div class="opts">${opts}</div>
+      ${feedback}
       <div class="actions">
         <button class="btn" data-act="prev" ${t.idx === 0 ? 'disabled' : ''}>Previous</button>
-        <button class="btn" data-act="clear">Clear</button>
         <button class="btn" data-act="mark">${t.marked[q.id] ? 'Unmark review' : 'Mark for review'}</button>
         <span class="spacer"></span>
         <button class="btn primary" data-act="next" ${t.idx === t.qs.length - 1 ? 'disabled' : ''}>Next</button>
       </div>
-      <p class="hint small muted">Keys: A to D choose an answer, left and right arrows move between questions, M marks for review.</p>
+      <p class="hint small muted">Keys: A to D choose an answer, left and right arrows move between questions, M marks for review. Your first choice is final and the right answer is shown straight away.</p>
     </section>
     <aside class="card palette">
       <b>${answered} / ${t.qs.length} answered</b>
       <div class="pal">${pal}</div>
-      <div class="legend"><span><i style="background:var(--brand)"></i>Answered</span>
+      <div class="legend"><span><i style="background:var(--ok)"></i>Right</span><span><i style="background:var(--bad)"></i>Wrong</span>
         <span><i style="background:var(--mark)"></i>Review</span><span><i></i>Not answered</span></div>
       <button class="btn primary block" data-act="submit">Submit test</button>
     </aside>
@@ -440,10 +448,28 @@ function tick() {
   if (left <= 0) { stopTimer(); submitTest(true); }
 }
 
-function choose(val) {
+let checking = false;
+// Choosing an answer sends it to the server, which locks it and replies with the right answer.
+async function choose(val) {
+  if (!test || checking) return;
   const q = test.qs[test.idx];
-  test.answers[q.id] = val;
+  if ((test.reveal || {})[q.id]) return;            // already answered; the first choice is final
+  checking = true;
+  const { data, error } = await sb.rpc('check_answer', { p_session: test.sessionId, p_question: q.id, p_choice: val });
+  checking = false;
+  if (!test) return;
+  if (error) { toast('Could not check your answer: ' + error.message); return; }
+  test.answers[q.id] = data.choice;
+  (test.reveal = test.reveal || {})[q.id] = { choice: data.choice, right: data.right, explanation: data.explanation };
   persist(); renderTest();
+}
+async function ensureReveal(id) {
+  if (checking || !test) return;
+  checking = true;
+  const { data } = await sb.rpc('check_answer', { p_session: test.sessionId, p_question: id, p_choice: test.answers[id] });
+  checking = false;
+  if (data && test) { test.reveal[id] = { choice: data.choice, right: data.right, explanation: data.explanation }; test.answers[id] = data.choice; persist();
+    if (test.qs[test.idx].id === id) renderTest(); }
 }
 
 let submitting = false;
@@ -640,7 +666,6 @@ const actions = {
   goto: el => { test.idx = Number(el.dataset.i); persist(); renderTest(); },
   prev: () => { if (test.idx > 0) { test.idx--; persist(); renderTest(); } },
   next: () => { if (test.idx < test.qs.length - 1) { test.idx++; persist(); renderTest(); } },
-  clear: () => { delete test.answers[test.qs[test.idx].id]; persist(); renderTest(); },
   mark: () => { const id = test.qs[test.idx].id; test.marked[id] = !test.marked[id]; if (!test.marked[id]) delete test.marked[id]; persist(); renderTest(); },
   submit: () => submitTest(false),
   review: el => openReview(el.dataset.id),
